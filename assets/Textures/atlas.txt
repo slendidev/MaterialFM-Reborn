@@ -1,0 +1,33 @@
+atlas=assets/Textures/Icons/../atlas.png
+atlas_width=192
+atlas_height=96
+cell=24
+columns=8
+count=25
+
+# name x y w h
+archive 0 0 24 24
+batt0 24 0 24 24
+batt1 48 0 24 24
+batt2 72 0 24 24
+batt3 96 0 24 24
+batt4 120 0 24 24
+batt5 144 0 24 24
+batt6 168 0 24 24
+batt_bolt 0 24 24 24
+batt_full 24 24 24 24
+box 48 24 24 24
+cloud 72 24 24 24
+data 96 24 24 24
+folder 120 24 24 24
+folder_info 144 24 24 24
+mem 168 24 24 24
+menu 0 48 24 24
+new_folder 24 48 24 24
+new_folder_alt 48 48 24 24
+rocket 72 48 24 24
+sd 96 48 24 24
+search 120 48 24 24
+settings 144 48 24 24
+unarchive 168 48 24 24
+usb 0 72 24 24
