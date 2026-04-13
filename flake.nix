@@ -27,6 +27,7 @@
           nativeBuildInputs = with pkgs; [
             imagemagick
             oxipng
+            xxd
           ];
         in
         {
