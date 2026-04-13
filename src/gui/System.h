@@ -210,7 +210,7 @@ public:
 	auto dump_command_list_stdout(WindowHandle handle) const -> void;
 	auto dump_command_list_file(
 	    WindowHandle handle, std::string_view path) const -> bool;
-	auto memo_should_recompose(Id key, uint64_t deps_hash) -> bool;
+	auto memo_should_recompose(Id key, uint32_t deps_hash) -> bool;
 	auto memo_store(Node const &node) -> void;
 	auto memo_restore(Node &node) -> bool;
 	auto mark_scope_recomposed(Scope scope) -> void;
@@ -379,7 +379,7 @@ private:
 		Animation::Tween tween {};
 		Animation::TweenSpec spec {};
 		std::function<bool()> pause_if {};
-		uint64_t generation {};
+		uint32_t generation {};
 		bool has_generation {};
 		bool initialized {};
 	};
@@ -389,7 +389,7 @@ private:
 	std::function<smath::Vec2(std::string_view, float)> m_text_measure_fn {};
 	uint32_t m_icon_image_id {};
 	std::unordered_map<std::string, Engine::Rect<>> m_icon_rects {};
-	std::unordered_map<Id, uint64_t, IdHash> m_memo_deps {};
+	std::unordered_map<Id, uint32_t, IdHash> m_memo_deps {};
 	std::unordered_map<Id, std::vector<std::unique_ptr<Node>>, IdHash>
 	    m_memo_children {};
 	std::unordered_map<Id, std::unique_ptr<Node>, IdHash> m_reconcile_nodes {};

@@ -353,7 +353,7 @@ public:
 	    std::string_view label,
 	    TextStyle style = {},
 	    FlexOptions const &options = FlexOptions::builder().build()) -> void;
-	auto memo(Id key, uint64_t deps_hash, ComposeFn const &fn) -> void;
+	auto memo(Id key, uint32_t deps_hash, ComposeFn const &fn) -> void;
 	auto spacer(Id key, float height) -> void;
 	auto icon(Id key, std::string_view icon_name, IconStyle style = {}) -> void;
 	auto surface(Id key,
@@ -378,7 +378,7 @@ public:
 	    std::string_view label,
 	    TextStyle style = {},
 	    FlexOptions const &options = FlexOptions::builder().build()) -> void;
-	auto memo(std::string_view key, uint64_t deps_hash, ComposeFn const &fn)
+	auto memo(std::string_view key, uint32_t deps_hash, ComposeFn const &fn)
 	    -> void;
 	auto spacer(std::string_view key, float height) -> void;
 	auto icon(

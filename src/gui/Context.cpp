@@ -766,7 +766,7 @@ auto Context::layer(std::string_view const key,
 	layer(id(key), presentation, options, style, fn);
 }
 
-auto Context::memo(Id const key, uint64_t const deps_hash, ComposeFn const &fn)
+auto Context::memo(Id const key, uint32_t const deps_hash, ComposeFn const &fn)
     -> void
 {
 	auto *node { push_node(Kind::Memo, key, m_scope) };
@@ -780,7 +780,7 @@ auto Context::memo(Id const key, uint64_t const deps_hash, ComposeFn const &fn)
 }
 
 auto Context::memo(
-    std::string_view const key, uint64_t const deps_hash, ComposeFn const &fn)
+    std::string_view const key, uint32_t const deps_hash, ComposeFn const &fn)
     -> void
 {
 	memo(id(key), deps_hash, fn);

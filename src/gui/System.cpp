@@ -537,7 +537,7 @@ auto System::mark_scope_recomposed(Scope const scope) -> void
 	m_stats.recomposed_dialog += 1;
 }
 
-auto System::memo_should_recompose(Id const key, uint64_t const deps_hash)
+auto System::memo_should_recompose(Id const key, uint32_t const deps_hash)
     -> bool
 {
 	auto const it { m_memo_deps.find(key) };

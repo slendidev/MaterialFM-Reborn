@@ -45,7 +45,7 @@ struct Ref
 	TweenSpec spec {};
 	std::function<bool()> pause_if {};
 	float fallback {};
-	uint64_t generation {};
+	uint32_t generation {};
 
 	auto valid() const -> bool { return !key.empty(); }
 };

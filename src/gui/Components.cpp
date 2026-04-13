@@ -54,7 +54,7 @@ auto with_multiplied_alpha(smath::Vec4 color, float const alpha) -> smath::Vec4
 struct ToastState
 {
 	bool active {};
-	uint64_t generation {};
+	uint32_t generation {};
 	std::string message {};
 
 	auto operator==(ToastState const &) const -> bool = default;
