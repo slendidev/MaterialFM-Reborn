@@ -105,10 +105,6 @@ auto Application::on_update(float const dt) -> void
 		}
 	}
 
-	if (is_pressed(Engine::Button::Triangle)) {
-		request_exit();
-	}
-
 	m_gui.begin_frame(MAIN_WINDOW,
 	    Gui::Input {
 	        .up_pressed = is_pressed(Engine::Button::Up),
