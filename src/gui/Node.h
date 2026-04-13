@@ -8,6 +8,7 @@
 
 #include "engine/Math.h"
 #include "gui/Animation.h"
+#include "gui/Id.h"
 
 namespace Gui
 {
@@ -117,7 +118,8 @@ struct Node
 {
 	Kind kind { Kind::Root };
 	Scope scope { Scope::Root };
-	std::string key {};
+	Id key {};
+	Id local_key {};
 	std::string label {};
 	std::string icon_name {};
 	float text_size { 14.0f };

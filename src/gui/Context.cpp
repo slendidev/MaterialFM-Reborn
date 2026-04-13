@@ -619,20 +619,18 @@ Context::Context(System &system, Node *const root)
 { }
 
 auto Context::push_node(Kind const kind,
-    std::string_view const key,
+    Id const key,
     Scope const scope,
     FlexOptions const &options) -> Node *
 {
-	Node *node {
-		m_system.reconcile_node(
-		    m_current, kind, scope, std::string(key), options),
-	};
+	Node *node { m_system.reconcile_node(
+		m_current, kind, scope, key, options) };
 	m_current = node;
 	return node;
 }
 
-auto Context::push_node(
-    Kind const kind, std::string_view const key, Scope const scope) -> Node *
+auto Context::push_node(Kind const kind, Id const key, Scope const scope)
+    -> Node *
 {
 	static auto const defaults { FlexOptions::builder().build() };
 	return push_node(kind, key, scope, defaults);
@@ -645,7 +643,7 @@ auto Context::pop_node() -> void
 	}
 }
 
-auto Context::text(std::string_view const key,
+auto Context::text(Id const key,
     std::string_view const label,
     TextStyle style,
     FlexOptions const &options) -> void
@@ -661,9 +659,16 @@ auto Context::text(std::string_view const key,
 	pop_node();
 }
 
-auto Context::icon(std::string_view const key,
-    std::string_view const icon_name,
-    IconStyle style) -> void
+auto Context::text(std::string_view const key,
+    std::string_view const label,
+    TextStyle style,
+    FlexOptions const &options) -> void
+{
+	text(id(key), label, style, options);
+}
+
+auto Context::icon(
+    Id const key, std::string_view const icon_name, IconStyle style) -> void
 {
 	auto *node { push_node(Kind::Icon, key, m_scope) };
 	node->icon_name = std::string(icon_name);
@@ -674,7 +679,14 @@ auto Context::icon(std::string_view const key,
 	pop_node();
 }
 
-auto Context::surface(std::string_view const key,
+auto Context::icon(std::string_view const key,
+    std::string_view const icon_name,
+    IconStyle style) -> void
+{
+	icon(id(key), icon_name, style);
+}
+
+auto Context::surface(Id const key,
     FlexOptions const &options,
     SurfaceStyle const style,
     ComposeFn const &fn) -> void
@@ -693,7 +705,15 @@ auto Context::surface(std::string_view const key,
 	pop_node();
 }
 
-auto Context::pressable(std::string_view const key,
+auto Context::surface(std::string_view const key,
+    FlexOptions const &options,
+    SurfaceStyle const style,
+    ComposeFn const &fn) -> void
+{
+	surface(id(key), options, style, fn);
+}
+
+auto Context::pressable(Id const key,
     FlexOptions const &options,
     std::function<void()> on_activate,
     bool const selectable,
@@ -707,7 +727,16 @@ auto Context::pressable(std::string_view const key,
 	pop_node();
 }
 
-auto Context::layer(std::string_view const key,
+auto Context::pressable(std::string_view const key,
+    FlexOptions const &options,
+    std::function<void()> on_activate,
+    bool const selectable,
+    ComposeFn const &fn) -> void
+{
+	pressable(id(key), options, std::move(on_activate), selectable, fn);
+}
+
+auto Context::layer(Id const key,
     LayerPresentation const presentation,
     FlexOptions const &options,
     LayerStyle const style,
@@ -728,8 +757,16 @@ auto Context::layer(std::string_view const key,
 	m_scope = previous_scope;
 }
 
-auto Context::memo(
-    std::string_view const key, uint64_t const deps_hash, ComposeFn const &fn)
+auto Context::layer(std::string_view const key,
+    LayerPresentation const presentation,
+    FlexOptions const &options,
+    LayerStyle const style,
+    ComposeFn const &fn) -> void
+{
+	layer(id(key), presentation, options, style, fn);
+}
+
+auto Context::memo(Id const key, uint64_t const deps_hash, ComposeFn const &fn)
     -> void
 {
 	auto *node { push_node(Kind::Memo, key, m_scope) };
@@ -742,10 +779,30 @@ auto Context::memo(
 	pop_node();
 }
 
-auto Context::spacer(std::string_view const key, float const height) -> void
+auto Context::memo(
+    std::string_view const key, uint64_t const deps_hash, ComposeFn const &fn)
+    -> void
+{
+	memo(id(key), deps_hash, fn);
+}
+
+auto Context::spacer(Id const key, float const height) -> void
 {
 	auto *node { push_node(Kind::Spacer, key, m_scope) };
 	node->fixed_height = height;
+	pop_node();
+}
+
+auto Context::spacer(std::string_view const key, float const height) -> void
+{
+	spacer(id(key), height);
+}
+
+auto Context::flex(
+    Id const key, FlexOptions const &options, ComposeFn const &fn) -> void
+{
+	push_node(Kind::Flex, key, m_scope, options);
+	fn(*this);
 	pop_node();
 }
 
@@ -753,14 +810,11 @@ auto Context::flex(
     std::string_view const key, FlexOptions const &options, ComposeFn const &fn)
     -> void
 {
-	push_node(Kind::Flex, key, m_scope, options);
-	fn(*this);
-	pop_node();
+	flex(id(key), options, fn);
 }
 
-auto Context::scrollable(std::string_view const key,
-    ScrollOptions const &options,
-    ComposeFn const &fn) -> void
+auto Context::scrollable(
+    Id const key, ScrollOptions const &options, ComposeFn const &fn) -> void
 {
 	auto *node { push_node(
 		Kind::Scrollable, key, m_scope, options.as_flex_options()) };
@@ -770,6 +824,13 @@ auto Context::scrollable(std::string_view const key,
 	node->max_height = options.max_height();
 	fn(*this);
 	pop_node();
+}
+
+auto Context::scrollable(std::string_view const key,
+    ScrollOptions const &options,
+    ComposeFn const &fn) -> void
+{
+	scrollable(id(key), options, fn);
 }
 
 auto Context::sidebar_open() const -> bool
@@ -827,7 +888,8 @@ auto Context::new_id(std::string_view const prefix) -> std::string
 		(prefix.empty() ? std::string { "id" } : std::string { prefix }),
 	};
 	auto const scope_key {
-		m_current != nullptr ? m_current->key : std::string { "root" },
+		m_current != nullptr ? std::format("{:08x}", m_current->key.value)
+		                     : std::string { "root" },
 	};
 	auto const counter_key { scope_key + "/@id/" + base };
 	auto &counter { m_id_counters[counter_key] };

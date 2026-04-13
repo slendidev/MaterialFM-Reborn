@@ -20,9 +20,10 @@ enum class Button : uint32_t
 	Right,
 	Cross,
 	Circle,
+	Square,
+	Triangle,
 	Start,
 	Select,
-	Triangle,
 	LeftTrigger,
 	RightTrigger,
 };

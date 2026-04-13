@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <unordered_map>
 
 #include "gui/Node.h"
@@ -22,6 +23,16 @@ struct ToastControl
 
 namespace
 {
+auto key_string_from_id(Id const key) -> std::string
+{
+	char buffer[16] {};
+	std::snprintf(buffer,
+	    sizeof(buffer),
+	    "id_%08lx",
+	    static_cast<unsigned long>(key.value));
+	return std::string(buffer);
+}
+
 auto mix_color(smath::Vec4 const a, smath::Vec4 const b, float const t)
     -> smath::Vec4
 {
@@ -75,7 +86,7 @@ auto ensure_toast_control(std::string const &key, ToastStyle const &style)
 } // namespace
 
 auto button(Context &ctx,
-    std::string_view const key,
+    Id const key,
     std::string_view const label,
     std::optional<std::string_view> const icon_name,
     std::function<void()> on_activate,
@@ -88,7 +99,7 @@ auto button(Context &ctx,
 	    std::move(on_activate),
 	    selectable,
 	    [&](Context &pressable) {
-		    pressable.surface("surface",
+		    pressable.surface(Gui::id("surface"),
 		        FlexOptions::builder().build(),
 		        SurfaceStyle::builder()
 		            .draw_fill(true)
@@ -102,7 +113,7 @@ auto button(Context &ctx,
 		            .outline_color(style.outline_color)
 		            .build(),
 		        [&](Context &surface) {
-			        surface.flex("content",
+			        surface.flex(Gui::id("content"),
 			            FlexOptions::builder()
 			                .row()
 			                .align_items(AlignItems::Center)
@@ -114,7 +125,7 @@ auto button(Context &ctx,
 			                .build(),
 			            [&](Context &content) {
 				            if (icon_name) {
-					            content.icon("icon",
+					            content.icon(Gui::id("icon"),
 					                *icon_name,
 					                IconStyle::builder()
 					                    .size(style.icon_size)
@@ -123,7 +134,7 @@ auto button(Context &ctx,
 					                    .selected_tint(style.selected_icon_tint)
 					                    .build());
 				            }
-				            content.text("label",
+				            content.text(Gui::id("label"),
 				                label,
 				                TextStyle::builder()
 				                    .size(style.text_size)
@@ -139,8 +150,27 @@ auto button(Context &ctx,
 	    });
 }
 
-auto sidebar(Context &ctx,
+auto button(Context &ctx,
     std::string_view const key,
+    std::string_view const label,
+    std::optional<std::string_view> const icon_name,
+    std::function<void()> on_activate,
+    bool const selectable,
+    FlexOptions const &options,
+    ButtonStyle const &style) -> void
+{
+	button(ctx,
+	    Gui::id(key),
+	    label,
+	    icon_name,
+	    std::move(on_activate),
+	    selectable,
+	    options,
+	    style);
+}
+
+auto sidebar(Context &ctx,
+    Id const key,
     FlexOptions const &options,
     Context::ComposeFn const &fn,
     SidebarStyle const &style) -> void
@@ -160,11 +190,22 @@ auto sidebar(Context &ctx,
 	        .fill_color(
 	            mix_color(theme.surface, theme.primary, style.tonal_mix))
 	        .build(),
-	    [&](Context &layer_ctx) { layer_ctx.flex("content", options, fn); });
+	    [&](Context &layer_ctx) {
+		    layer_ctx.flex(Gui::id("content"), options, fn);
+	    });
+}
+
+auto sidebar(Context &ctx,
+    std::string_view const key,
+    FlexOptions const &options,
+    Context::ComposeFn const &fn,
+    SidebarStyle const &style) -> void
+{
+	sidebar(ctx, Gui::id(key), options, fn, style);
 }
 
 auto dialog(Context &ctx,
-    std::string_view const key,
+    Id const key,
     FlexOptions const &options,
     Context::ComposeFn const &fn,
     DialogStyle const &style) -> void
@@ -202,7 +243,7 @@ auto dialog(Context &ctx,
 	        .draw_fill(false)
 	        .build(),
 	    [&](Context &layer_ctx) {
-		    layer_ctx.flex("center",
+		    layer_ctx.flex(Gui::id("center"),
 		        FlexOptions::builder()
 		            .row()
 		            .width(screen_width)
@@ -211,7 +252,7 @@ auto dialog(Context &ctx,
 		            .align_items(AlignItems::Center)
 		            .build(),
 		        [&](Context &center) {
-			        center.surface("card",
+			        center.surface(Gui::id("card"),
 			            FlexOptions::builder()
 			                .align_items(AlignItems::Start)
 			                .build(),
@@ -240,20 +281,29 @@ auto dialog(Context &ctx,
 				            }
 				            scroll_options_builder.max_width(dialog_max_width)
 				                .max_height(dialog_max_height);
-				            card.scrollable("scroll",
+				            card.scrollable(Gui::id("scroll"),
 				                scroll_options_builder.build(),
 				                [&](Context &scroll) {
-					                scroll.flex("content", options, fn);
+					                scroll.flex(
+					                    Gui::id("content"), options, fn);
 				                });
 			            });
 		        });
 	    });
 }
 
-auto toast(Context &ctx, std::string_view const key, ToastStyle const &style)
-    -> Toast
+auto dialog(Context &ctx,
+    std::string_view const key,
+    FlexOptions const &options,
+    Context::ComposeFn const &fn,
+    DialogStyle const &style) -> void
 {
-	auto const key_string { std::string(key) };
+	dialog(ctx, Gui::id(key), options, fn, style);
+}
+
+auto toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
+{
+	auto const key_string { key_string_from_id(key) };
 	auto control { ensure_toast_control(key_string, style) };
 	control->system = &ctx.system();
 	auto state_store {
@@ -286,7 +336,7 @@ auto toast(Context &ctx, std::string_view const key, ToastStyle const &style)
 	auto const total { fade_in + hold + fade_out };
 
 	auto progress_anim {
-		Animation::Definition::builder(std::string(key) + "/alpha")
+		Animation::Definition::builder(key_string + "/alpha")
 		    .from(0.0f)
 		    .to(1.0f)
 		    .duration(total)
@@ -328,7 +378,7 @@ auto toast(Context &ctx, std::string_view const key, ToastStyle const &style)
 	        .build(),
 	    LayerStyle::builder().draw_scrim(false).draw_fill(false).build(),
 	    [&](Context &layer_ctx) {
-		    layer_ctx.flex("bottom_center",
+		    layer_ctx.flex(Gui::id("bottom_center"),
 		        FlexOptions::builder()
 		            .row()
 		            .width(window_rect.size.x())
@@ -343,7 +393,7 @@ auto toast(Context &ctx, std::string_view const key, ToastStyle const &style)
 		            .align_items(AlignItems::End)
 		            .build(),
 		        [&](Context &bottom_center) {
-			        bottom_center.surface("toast_card",
+			        bottom_center.surface(Gui::id("toast_card"),
 			            FlexOptions::builder()
 			                .width(control->style.width)
 			                .height(control->style.min_height)
@@ -357,7 +407,7 @@ auto toast(Context &ctx, std::string_view const key, ToastStyle const &style)
 			                    control->style.fill, alpha))
 			                .build(),
 			            [&](Context &card) {
-				            card.flex("content",
+				            card.flex(Gui::id("content"),
 				                FlexOptions::builder()
 				                    .row()
 				                    .width(control->style.width)
@@ -370,7 +420,7 @@ auto toast(Context &ctx, std::string_view const key, ToastStyle const &style)
 				                    .align_items(AlignItems::Center)
 				                    .build(),
 				                [&](Context &content) {
-					                content.text("message",
+					                content.text(Gui::id("message"),
 					                    state_store.get().message,
 					                    TextStyle::builder()
 					                        .size(control->style.text_size)
@@ -390,6 +440,12 @@ auto toast(Context &ctx, std::string_view const key, ToastStyle const &style)
 	    });
 
 	return Toast { std::move(control) };
+}
+
+auto toast(Context &ctx, std::string_view const key, ToastStyle const &style)
+    -> Toast
+{
+	return toast(ctx, Gui::id(key), style);
 }
 
 Toast::Toast(std::string key)

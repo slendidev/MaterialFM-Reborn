@@ -44,6 +44,11 @@ static unsigned int __attribute__((aligned(16))) g_gpu_list[0x40000];
 std::vector<Engine::Rect<>> g_clip_stack {};
 Engine::Platform::RendererStats g_renderer_stats {};
 Engine::Texture const *g_bound_texture {};
+int g_scissor_x {};
+int g_scissor_y {};
+int g_scissor_w {};
+int g_scissor_h {};
+bool g_scissor_initialized {};
 } // namespace
 
 namespace Engine
@@ -129,6 +134,11 @@ auto renderer_begin_frame() -> void
 	sceGuTexFilter(GU_NEAREST, GU_NEAREST);
 	sceGuScissor(0, 0, GU_SCR_WIDTH, GU_SCR_HEIGHT);
 	sceGuEnable(GU_SCISSOR_TEST);
+	g_scissor_x = 0;
+	g_scissor_y = 0;
+	g_scissor_w = GU_SCR_WIDTH;
+	g_scissor_h = GU_SCR_HEIGHT;
+	g_scissor_initialized = true;
 }
 
 auto renderer_end_frame() -> void
@@ -183,8 +193,17 @@ auto apply_scissor(Engine::Rect<> const clip) -> void
 	auto const width { std::max(0, right - x) };
 	auto const height { std::max(0, bottom - y) };
 
-	sceGuEnable(GU_SCISSOR_TEST);
+	if (g_scissor_initialized && g_scissor_x == x && g_scissor_y == y
+	    && g_scissor_w == width && g_scissor_h == height) {
+		return;
+	}
+
 	sceGuScissor(x, y, width, height);
+	g_scissor_x = x;
+	g_scissor_y = y;
+	g_scissor_w = width;
+	g_scissor_h = height;
+	g_scissor_initialized = true;
 }
 
 auto renderer_push_scissor(Rect<> const rect) -> void
@@ -220,8 +239,13 @@ auto renderer_pop_scissor() -> void
 	}
 
 	if (g_clip_stack.empty()) {
-		sceGuEnable(GU_SCISSOR_TEST);
-		sceGuScissor(0, 0, GU_SCR_WIDTH, GU_SCR_HEIGHT);
+		apply_scissor(Engine::Rect<> {
+		    .position = smath::Vec2 { 0.0f, 0.0f },
+		    .size = smath::Vec2 {
+		        static_cast<float>(GU_SCR_WIDTH),
+		        static_cast<float>(GU_SCR_HEIGHT),
+		    },
+		});
 		return;
 	}
 
@@ -654,6 +678,8 @@ struct AssetManager::Impl
 	std::vector<SongSlot> song_slots {};
 	std::vector<FontSlot> font_slots {};
 	FontHandle active_font {};
+	std::atomic<uint32_t> active_font_id { 0xFFFFFFFFu };
+	std::atomic<Font const *> active_font_ptr {};
 
 	std::vector<SoundVoice> sound_voices {};
 	std::optional<SongState> song_state {};
@@ -1854,6 +1880,8 @@ auto AssetManager::load_font_from_file(std::string_view const name,
 	out_handle.id = handle;
 	if (m_impl->active_font.id == 0xFFFFFFFFu) {
 		m_impl->active_font = out_handle;
+		m_impl->active_font_id.store(out_handle.id, std::memory_order_release);
+		m_impl->active_font_ptr.store(&it->second, std::memory_order_release);
 	}
 
 	return AssetError::Ok;
@@ -1976,6 +2004,8 @@ auto AssetManager::unload_font(FontHandle const handle) -> AssetError
 	m_impl->font_slots[handle.id].name.clear();
 	if (m_impl->active_font.id == handle.id) {
 		m_impl->active_font = FontHandle {};
+		m_impl->active_font_id.store(0xFFFFFFFFu, std::memory_order_release);
+		m_impl->active_font_ptr.store(nullptr, std::memory_order_release);
 	}
 	return AssetError::Ok;
 }
@@ -2037,6 +2067,12 @@ auto AssetManager::font(FontHandle const handle) const -> Font const *
 	if (handle.id == 0xFFFFFFFFu) {
 		return nullptr;
 	}
+	auto const active_id {
+		m_impl->active_font_id.load(std::memory_order_acquire),
+	};
+	if (handle.id == active_id) {
+		return m_impl->active_font_ptr.load(std::memory_order_acquire);
+	}
 	std::lock_guard<std::mutex> lock(m_impl->font_mutex);
 	if (handle.id >= m_impl->font_slots.size()) {
 		return nullptr;
@@ -2096,13 +2132,17 @@ auto AssetManager::set_active_font(FontHandle const handle) -> AssetError
 		return AssetError::NotFound;
 	}
 	m_impl->active_font = handle;
+	m_impl->active_font_id.store(handle.id, std::memory_order_release);
+	m_impl->active_font_ptr.store(
+	    m_impl->font_slots[handle.id].asset, std::memory_order_release);
 	return AssetError::Ok;
 }
 
 auto AssetManager::active_font_handle() const -> FontHandle
 {
-	std::lock_guard<std::mutex> lock(m_impl->font_mutex);
-	return m_impl->active_font;
+	return FontHandle {
+		m_impl->active_font_id.load(std::memory_order_acquire),
+	};
 }
 
 auto AssetManager::play_sound(

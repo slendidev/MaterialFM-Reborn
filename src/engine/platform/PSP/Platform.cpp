@@ -112,14 +112,17 @@ auto poll_input() -> ::Engine::detail::InputState
 	if ((pad.Buttons & PSP_CTRL_CIRCLE) != 0u) {
 		buttons |= detail::button_mask(Button::Circle);
 	}
+	if ((pad.Buttons & PSP_CTRL_SQUARE) != 0u) {
+		buttons |= detail::button_mask(Button::Square);
+	}
+	if ((pad.Buttons & PSP_CTRL_TRIANGLE) != 0u) {
+		buttons |= detail::button_mask(Button::Triangle);
+	}
 	if ((pad.Buttons & PSP_CTRL_START) != 0u) {
 		buttons |= detail::button_mask(Button::Start);
 	}
 	if ((pad.Buttons & PSP_CTRL_SELECT) != 0u) {
 		buttons |= detail::button_mask(Button::Select);
-	}
-	if ((pad.Buttons & PSP_CTRL_TRIANGLE) != 0u) {
-		buttons |= detail::button_mask(Button::Triangle);
 	}
 	if ((pad.Buttons & PSP_CTRL_LTRIGGER) != 0u) {
 		buttons |= detail::button_mask(Button::LeftTrigger);

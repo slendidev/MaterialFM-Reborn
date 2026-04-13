@@ -23,6 +23,16 @@ constexpr float PI { 3.14159265358979323846f };
 constexpr float DEFAULT_DRAWER_WIDTH { 184.0f };
 constexpr float DEFAULT_MODAL_WIDTH { 280.0f };
 constexpr float DEFAULT_MODAL_HEIGHT { 170.0f };
+constexpr auto STATE_SALT { Gui::id("@state") };
+constexpr auto TWEEN_SALT { Gui::id("@tween") };
+
+auto id_hex(Gui::Id const key) -> std::string
+{
+	char buf[11] {};
+	std::snprintf(
+	    buf, sizeof(buf), "#%08lx", static_cast<unsigned long>(key.value));
+	return std::string(buf);
+}
 
 auto approx_equal(float const a, float const b, float const epsilon = 0.0001f)
     -> bool
@@ -432,7 +442,8 @@ System::System()
 	m_root = std::make_unique<Node>();
 	m_root->kind = Kind::Root;
 	m_root->scope = Scope::Root;
-	m_root->key = "root";
+	m_root->key = id("root");
+	m_root->local_key = id("root");
 	m_sidebar_tween.configure(Animation::TweenSpec {
 	    .from = 0.0f,
 	    .to = 0.0f,
@@ -480,9 +491,14 @@ auto System::set_hud_visible(bool const visible) -> void
 	m_visual_dirty = true;
 }
 
+auto System::selected(Id const key) const -> bool
+{
+	return m_selected.contains(key);
+}
+
 auto System::selected(std::string_view const key) const -> bool
 {
-	return m_selected.contains(std::string(key));
+	return selected(id(key));
 }
 
 auto System::set_icon_atlas(uint32_t const image_id, IconAtlas const &atlas)
@@ -502,8 +518,8 @@ auto System::set_text_measure_fn(
 	m_layout_dirty = true;
 }
 
-auto System::sample_animation_ref(
-    Animation::Ref const &ref, std::string_view const owner_key) -> float
+auto System::sample_animation_ref(Animation::Ref const &ref, Id const owner_key)
+    -> float
 {
 	return resolve_animated_float(ref, owner_key);
 }
@@ -521,8 +537,8 @@ auto System::mark_scope_recomposed(Scope const scope) -> void
 	m_stats.recomposed_dialog += 1;
 }
 
-auto System::memo_should_recompose(
-    std::string const &key, uint64_t const deps_hash) -> bool
+auto System::memo_should_recompose(Id const key, uint64_t const deps_hash)
+    -> bool
 {
 	auto const it { m_memo_deps.find(key) };
 	if (it == m_memo_deps.end() || it->second != deps_hash) {
@@ -639,16 +655,7 @@ auto System::stash_orphan(std::unique_ptr<Node> node) -> void
 
 auto System::restore_memo_child(Node &parent, Node const &source) -> void
 {
-	auto local_key { source.key };
-	auto const prefix { parent.key + "/" };
-	if (source.key.starts_with(prefix)) {
-		local_key = source.key.substr(prefix.size());
-	} else {
-		auto const slash { source.key.find_last_of('/') };
-		if (slash != std::string::npos) {
-			local_key = source.key.substr(slash + 1);
-		}
-	}
+	auto const local_key { source.local_key };
 	auto *node { reconcile_node(&parent,
 		source.kind,
 		source.scope,
@@ -910,13 +917,13 @@ auto System::prune_state_store() -> void
 auto System::reconcile_node(Node *const parent,
     Kind const kind,
     Scope const scope,
-    std::string const &key,
+    Id const key,
     FlexOptions const &options) -> Node *
 {
 	if (parent == nullptr) {
 		return m_root.get();
 	}
-	auto const full_key { parent->key + "/" + key };
+	auto const full_key { combine_id(parent->key, key) };
 
 	std::unique_ptr<Node> node {};
 	auto const existing_it { m_reconcile_nodes.find(full_key) };
@@ -976,6 +983,7 @@ auto System::reconcile_node(Node *const parent,
 	node->scroll_axis = ScrollAxis::Vertical;
 	node->scroll_step = 24.0f;
 	node->key = full_key;
+	node->local_key = key;
 	node->label.clear();
 	node->icon_name.clear();
 	node->text_size = 14.0f;
@@ -1018,9 +1026,9 @@ auto System::reconcile_node(Node *const parent,
 	return parent->children.back().get();
 }
 
-auto System::find_node_by_key(std::string_view const key) -> Node *
+auto System::find_node_by_key(Id const key) -> Node *
 {
-	if (key.empty()) {
+	if (!key.valid()) {
 		return nullptr;
 	}
 
@@ -1065,7 +1073,7 @@ auto System::gather_focusables(
 	}
 }
 
-auto System::active_scope_focus_key() -> std::string &
+auto System::active_scope_focus_key() -> Id &
 {
 	auto const scope { active_scope() };
 	if (scope == Scope::Sidebar) {
@@ -1077,7 +1085,7 @@ auto System::active_scope_focus_key() -> std::string &
 	return m_root_focus_key;
 }
 
-auto System::active_scope_focus_key() const -> std::string const &
+auto System::active_scope_focus_key() const -> Id const &
 {
 	auto const scope { active_scope() };
 	if (scope == Scope::Sidebar) {
@@ -1100,7 +1108,7 @@ auto System::sync_focus() -> void
 	auto &scope_key { active_scope_focus_key() };
 	auto had_to_replace_focus = false;
 
-	if (scope_key.empty()) {
+	if (!scope_key.valid()) {
 		scope_key = focusables.front()->key;
 		had_to_replace_focus = true;
 	}
@@ -1218,7 +1226,7 @@ auto System::handle_input() -> void
 
 	if (m_input.actions_pressed && !m_dialog_open && !m_sidebar_open) {
 		set_dialog_open(true);
-		m_pending_selectable_activation.clear();
+		m_pending_selectable_activation = Id {};
 	}
 
 	if (m_input.back_pressed) {
@@ -1226,7 +1234,7 @@ auto System::handle_input() -> void
 			m_selection_mode = false;
 			m_selected.clear();
 			m_visual_dirty = true;
-			m_pending_selectable_activation.clear();
+			m_pending_selectable_activation = Id {};
 			return;
 		}
 		if (m_dialog_open) {
@@ -1558,7 +1566,7 @@ auto System::handle_input() -> void
 		m_selection_mode = true;
 		m_selected.insert(focused->key);
 		m_visual_dirty = true;
-		m_pending_selectable_activation.clear();
+		m_pending_selectable_activation = Id {};
 	}
 
 	if (m_input.confirm_pressed && focused != nullptr) {
@@ -1585,7 +1593,7 @@ auto System::handle_input() -> void
 		}
 	}
 
-	if (m_confirm_released && !m_pending_selectable_activation.empty()) {
+	if (m_confirm_released && m_pending_selectable_activation.valid()) {
 		if (!m_confirm_hold_consumed) {
 			auto *node {
 				find_node_by_key(m_pending_selectable_activation),
@@ -1594,7 +1602,7 @@ auto System::handle_input() -> void
 				node->on_activate();
 			}
 		}
-		m_pending_selectable_activation.clear();
+		m_pending_selectable_activation = Id {};
 	}
 }
 
@@ -1624,7 +1632,7 @@ auto System::tick_scroll_animation(float const dt) -> void
 		return;
 	}
 
-	std::unordered_set<std::string> active_keys {};
+	std::unordered_set<Id, IdHash> active_keys {};
 	std::function<void(Node &)> animate_scroll = [&](Node &node) {
 		if (node.kind == Kind::Scrollable) {
 			active_keys.insert(node.key);
@@ -1690,15 +1698,18 @@ auto System::tick_scroll_animation(float const dt) -> void
 }
 
 auto System::resolve_animated_float(
-    Animation::Ref const &ref, std::string_view const owner_key) -> float
+    Animation::Ref const &ref, Id const owner_key) -> float
 {
 	if (!ref.valid()) {
 		return ref.fallback;
 	}
 
-	auto resolved_key { ref.key };
-	if (!resolved_key.starts_with("root/")) {
-		resolved_key = std::string(owner_key) + "/@tween/" + resolved_key;
+	Id resolved_key {};
+	if (ref.key.starts_with("root/")) {
+		resolved_key = id(ref.key);
+	} else {
+		resolved_key
+		    = combine_id(combine_id(owner_key, TWEEN_SALT), id(ref.key));
 	}
 
 	auto &track { m_tween_tracks[resolved_key] };
@@ -2309,7 +2320,7 @@ auto System::layout_tree() -> void
 auto System::render_node(std::vector<DrawCommand> &draw_list,
     uint16_t const node_index,
     Engine::Rect<> const clip_rect,
-    std::string_view const focused_key,
+    Id const focused_key,
     bool const parent_pressable_focused,
     bool const parent_pressable_selected) -> void
 {
@@ -2335,9 +2346,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 
 	m_stats.rendered_nodes += 1;
 
-	auto const focused_here {
-		!focused_key.empty() && focused_key == key,
-	};
+	auto const focused_here { focused_key.valid() && focused_key == key };
 	auto const selected_here { m_selected.contains(key) };
 	auto const pressable_focused {
 		node.kind == Kind::Pressable ? focused_here : parent_pressable_focused,
@@ -2355,8 +2364,6 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			text_color
 			    = choose_color(node.selected_text_color, m_theme.on_primary);
 		}
-		draw_list.push_back(
-		    DrawCommand { .payload = DrawCommand::PushClip { *visible_rect } });
 		draw_list.push_back(DrawCommand { .payload = DrawCommand::Text {
 		                                      .value = label,
 		                                      .box = node.rect,
@@ -2365,7 +2372,6 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 		                                      .align_x = node.text_align_x,
 		                                      .align_y = node.text_align_y,
 		                                  } });
-		draw_list.push_back(DrawCommand { .payload = DrawCommand::PopClip {} });
 		if (m_debug_bounds) {
 			draw_debug_bounds(
 			    draw_list, node.rect, node.depth, key, *visible_rect, false);
@@ -2383,9 +2389,6 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 				    mix_color(fill, m_theme.primary, 0.20f));
 			}
 		}
-
-		draw_list.push_back(
-		    DrawCommand { .payload = DrawCommand::PushClip { *visible_rect } });
 		if (node.draw_fill) {
 			draw_rounded_fill(draw_list, node.rect, fill, node.corner_radius);
 		}
@@ -2426,7 +2429,6 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			        .color = outline,
 			    } });
 		}
-		draw_list.push_back(DrawCommand { .payload = DrawCommand::PopClip {} });
 	}
 
 	if (node.kind == Kind::Icon) {
@@ -2437,8 +2439,6 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			icon_color
 			    = choose_color(node.selected_icon_tint, m_theme.on_primary);
 		}
-		draw_list.push_back(
-		    DrawCommand { .payload = DrawCommand::PushClip { *visible_rect } });
 		auto icon_drawn { false };
 		if (m_icon_image_id != 0u) {
 			auto const icon_it { m_icon_rects.find(icon_name) };
@@ -2466,9 +2466,8 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			                                       node.icon_size },
 			                               },
 			                               .color = m_theme.outline,
-			                           } });
+		                           } });
 		}
-		draw_list.push_back(DrawCommand { .payload = DrawCommand::PopClip {} });
 		if (m_debug_bounds) {
 			draw_debug_bounds(
 			    draw_list, node.rect, node.depth, key, *visible_rect, false);
@@ -2498,8 +2497,6 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 	}
 
 	if (node.kind == Kind::Scrollable) {
-		draw_list.push_back(
-		    DrawCommand { .payload = DrawCommand::PushClip { *visible_rect } });
 		auto const viewport_rect { Engine::Rect<> {
 			.position = node.rect.position
 			    + smath::Vec2 { node.padding_left, node.padding_top },
@@ -2513,8 +2510,6 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 		auto const scroll_clip { intersect_rects(
 			viewport_rect, *visible_rect) };
 		if (!scroll_clip.has_value()) {
-			draw_list.push_back(
-			    DrawCommand { .payload = DrawCommand::PopClip {} });
 			return;
 		}
 		draw_list.push_back(
@@ -2535,7 +2530,6 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			    pressable_selected);
 			child_index = child.next_sibling;
 		}
-		draw_list.push_back(DrawCommand { .payload = DrawCommand::PopClip {} });
 		draw_list.push_back(DrawCommand { .payload = DrawCommand::PopClip {} });
 		if (m_debug_bounds) {
 			draw_debug_bounds(
@@ -2574,7 +2568,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 auto System::draw_debug_bounds(std::vector<DrawCommand> &draw_list,
     Engine::Rect<> const rect,
     uint16_t const depth,
-    std::string_view const key,
+    Id const key,
     Engine::Rect<> const clip_rect,
     bool const overlay) -> void
 {
@@ -2608,7 +2602,7 @@ auto System::draw_debug_bounds(std::vector<DrawCommand> &draw_list,
 	                                      .color = color,
 	                                  } });
 
-	if (key.empty() || rect.size.x() < 32.0f || rect.size.y() < 14.0f) {
+	if (!key.valid() || rect.size.x() < 32.0f || rect.size.y() < 14.0f) {
 		return;
 	}
 	m_debug_label_candidates.push_back(DebugLabelCandidate {
@@ -2646,22 +2640,9 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 	struct OverlayOccluder
 	{
 		Engine::Rect<> rect {};
-		std::string_view key {};
+		Id key {};
 	};
 	std::vector<OverlayOccluder> overlay_occluders {};
-	auto is_descendant_or_same
-	    = [](std::string_view const key, std::string_view const ancestor) {
-		      if (ancestor.empty() || key.size() < ancestor.size()) {
-			      return false;
-		      }
-		      if (key.compare(0, ancestor.size(), ancestor) != 0) {
-			      return false;
-		      }
-		      if (key.size() == ancestor.size()) {
-			      return true;
-		      }
-		      return key[ancestor.size()] == '/';
-	      };
 	for (auto const &candidate : m_debug_label_candidates) {
 		auto const clipped { intersect_rects(
 			candidate.rect, candidate.clip_rect) };
@@ -2677,7 +2658,7 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 		} else {
 			auto occluded_by_overlay { false };
 			for (auto const &overlay : overlay_occluders) {
-				if (is_descendant_or_same(candidate.key, overlay.key)) {
+				if (candidate.key == overlay.key) {
 					continue;
 				}
 				if (intersects(candidate.rect, overlay.rect)) {
@@ -2690,11 +2671,7 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 			}
 		}
 
-		auto label { std::string { candidate.key } };
-		auto const slash { label.find_last_of('/') };
-		if (slash != std::string::npos && slash + 1 < label.size()) {
-			label = label.substr(slash + 1);
-		}
+		auto label { id_hex(candidate.key) };
 		if (label.empty()) {
 			continue;
 		}
@@ -2821,10 +2798,7 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 	m_debug_label_order = 0;
 	auto const screen_clip { m_window_rect };
 	auto const *focused { focused_node() };
-	auto const focused_key {
-		focused != nullptr ? std::string_view { focused->key }
-		                   : std::string_view {},
-	};
+	auto const focused_key { focused != nullptr ? focused->key : Id {} };
 	if (m_render_root_index != INVALID_NODE_INDEX
 	    && m_render_root_index < m_render_nodes.size()) {
 		auto draw_children_pass = [&](bool const hud_only) {
@@ -2920,7 +2894,7 @@ auto System::dump_tree_line(
 	char line[256] {};
 	std::snprintf(line,
 	    sizeof(line),
-	    "%.*s rect=(%.1f,%.1f %.1fx%.1f) rc=%lu sk=%lu key=%s\n",
+	    "%.*s rect=(%.1f,%.1f %.1fx%.1f) rc=%lu sk=%lu key=%08lx\n",
 	    static_cast<int>(kind_name.size()),
 	    kind_name.data(),
 	    static_cast<double>(node.rect.position.x()),
@@ -2929,7 +2903,7 @@ auto System::dump_tree_line(
 	    static_cast<double>(node.rect.size.y()),
 	    static_cast<unsigned long>(node.recompose_count),
 	    static_cast<unsigned long>(node.skip_count),
-	    node.key.c_str());
+	    static_cast<unsigned long>(node.key.value));
 	out += line;
 	for (auto const &child : node.children) {
 		dump_tree_line(out, *child, indent + 1);

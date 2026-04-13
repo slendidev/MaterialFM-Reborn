@@ -72,15 +72,15 @@ auto append_hard_wrapped_word(std::vector<std::string> &out,
 	}
 
 	std::string current {};
+	current.reserve(word.size());
 	for (char const ch : word) {
-		std::string candidate { current };
-		candidate.push_back(ch);
-		auto const candidate_width { width_fn(candidate) };
-		if (!current.empty() && candidate_width > max_width) {
-			out.push_back(current);
-			current.clear();
-		}
 		current.push_back(ch);
+		auto const candidate_width { width_fn(current) };
+		if (current.size() > 1 && candidate_width > max_width) {
+			current.pop_back();
+			out.push_back(current);
+			current.assign(1, ch);
+		}
 	}
 	if (!current.empty()) {
 		out.push_back(current);
@@ -100,6 +100,7 @@ auto wrap_line_words(
 	}
 
 	std::vector<std::string> words {};
+	words.reserve(16);
 	std::string current_word {};
 	for (char const ch : line) {
 		if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
@@ -131,17 +132,25 @@ auto wrap_line_words(
 	};
 
 	std::vector<std::string> lines {};
+	lines.reserve(words.size());
 	std::string current_line {};
 	for (auto const &word : words) {
-		std::string candidate {
-			current_line.empty() ? word : (current_line + " " + word),
-		};
-		auto const candidate_width { width_of(candidate) };
-		if (current_line.empty() && candidate_width > max_width) {
-			append_hard_wrapped_word(lines, word, max_width, width_of);
+		if (current_line.empty()) {
+			auto const word_width { width_of(word) };
+			if (word_width > max_width) {
+				append_hard_wrapped_word(lines, word, max_width, width_of);
+				continue;
+			}
+			current_line = word;
 			continue;
 		}
-		if (!current_line.empty() && candidate_width > max_width) {
+
+		auto const old_size { current_line.size() };
+		current_line.push_back(' ');
+		current_line.append(word);
+		auto const candidate_width { width_of(current_line) };
+		if (candidate_width > max_width) {
+			current_line.resize(old_size);
 			lines.push_back(current_line);
 			if (width_of(word) > max_width) {
 				append_hard_wrapped_word(lines, word, max_width, width_of);
@@ -151,7 +160,6 @@ auto wrap_line_words(
 			}
 			continue;
 		}
-		current_line = std::move(candidate);
 	}
 	if (!current_line.empty()) {
 		lines.push_back(current_line);
@@ -493,6 +501,12 @@ auto Renderer::draw_line(smath::Vec2 const start,
 	ensure_batch_capacity(4, 6);
 	auto const color_u32 { smath::pack_unorm4x8(color) };
 	auto const base_index { static_cast<uint16_t>(m_batch_vertices.size()) };
+	auto const vertex_start { m_batch_vertices.size() };
+	m_batch_vertices.resize(vertex_start + 4);
+	auto *const vertices { m_batch_vertices.data() + vertex_start };
+	auto const index_start { m_batch_indices.size() };
+	m_batch_indices.resize(index_start + 6);
+	auto *const indices { m_batch_indices.data() + index_start };
 
 	auto const nx { -dy / length * half_thickness };
 	auto const ny { dx / length * half_thickness };
@@ -501,45 +515,45 @@ auto Renderer::draw_line(smath::Vec2 const start,
 	auto const p2 { smath::Vec2 { start.x() - nx, start.y() - ny } };
 	auto const p3 { smath::Vec2 { end.x() - nx, end.y() - ny } };
 
-	m_batch_vertices.push_back(detail::GraphicsVertex {
-	    .u = 0.0f,
-	    .v = 0.0f,
-	    .color = color_u32,
-	    .x = p0.x(),
-	    .y = p0.y(),
-	    .z = 0.0f,
-	});
-	m_batch_vertices.push_back(detail::GraphicsVertex {
-	    .u = 0.0f,
-	    .v = 0.0f,
-	    .color = color_u32,
-	    .x = p1.x(),
-	    .y = p1.y(),
-	    .z = 0.0f,
-	});
-	m_batch_vertices.push_back(detail::GraphicsVertex {
-	    .u = 0.0f,
-	    .v = 0.0f,
-	    .color = color_u32,
-	    .x = p2.x(),
-	    .y = p2.y(),
-	    .z = 0.0f,
-	});
-	m_batch_vertices.push_back(detail::GraphicsVertex {
-	    .u = 0.0f,
-	    .v = 0.0f,
-	    .color = color_u32,
-	    .x = p3.x(),
-	    .y = p3.y(),
-	    .z = 0.0f,
-	});
+	vertices[0] = detail::GraphicsVertex {
+		.u = 0.0f,
+		.v = 0.0f,
+		.color = color_u32,
+		.x = p0.x(),
+		.y = p0.y(),
+		.z = 0.0f,
+	};
+	vertices[1] = detail::GraphicsVertex {
+		.u = 0.0f,
+		.v = 0.0f,
+		.color = color_u32,
+		.x = p1.x(),
+		.y = p1.y(),
+		.z = 0.0f,
+	};
+	vertices[2] = detail::GraphicsVertex {
+		.u = 0.0f,
+		.v = 0.0f,
+		.color = color_u32,
+		.x = p2.x(),
+		.y = p2.y(),
+		.z = 0.0f,
+	};
+	vertices[3] = detail::GraphicsVertex {
+		.u = 0.0f,
+		.v = 0.0f,
+		.color = color_u32,
+		.x = p3.x(),
+		.y = p3.y(),
+		.z = 0.0f,
+	};
 
-	m_batch_indices.push_back(base_index);
-	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 1));
-	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 2));
-	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 1));
-	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 3));
-	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 2));
+	indices[0] = base_index;
+	indices[1] = static_cast<uint16_t>(base_index + 1);
+	indices[2] = static_cast<uint16_t>(base_index + 2);
+	indices[3] = static_cast<uint16_t>(base_index + 1);
+	indices[4] = static_cast<uint16_t>(base_index + 3);
+	indices[5] = static_cast<uint16_t>(base_index + 2);
 }
 
 auto Renderer::draw_circle(smath::Vec2 const center,
@@ -585,15 +599,21 @@ auto Renderer::draw_circle_sector(smath::Vec2 const center,
 
 	auto const color_u32 { smath::pack_unorm4x8(color) };
 	auto const base { static_cast<uint16_t>(m_batch_vertices.size()) };
+	auto const vertex_start { m_batch_vertices.size() };
+	m_batch_vertices.resize(vertex_start + needed_vertices);
+	auto *const vertices { m_batch_vertices.data() + vertex_start };
+	auto const index_start { m_batch_indices.size() };
+	m_batch_indices.resize(index_start + needed_indices);
+	auto *const indices { m_batch_indices.data() + index_start };
 
-	m_batch_vertices.push_back(detail::GraphicsVertex {
-	    .u = 0.0f,
-	    .v = 0.0f,
-	    .color = color_u32,
-	    .x = center.x(),
-	    .y = center.y(),
-	    .z = 0.0f,
-	});
+	vertices[0] = detail::GraphicsVertex {
+		.u = 0.0f,
+		.v = 0.0f,
+		.color = color_u32,
+		.x = center.x(),
+		.y = center.y(),
+		.z = 0.0f,
+	};
 
 	for (int i {}; i <= seg_count; ++i) {
 		auto const t {
@@ -602,20 +622,21 @@ auto Renderer::draw_circle_sector(smath::Vec2 const center,
 		auto const angle { start_radians + sweep * t };
 		auto const x { center.x() + std::cos(angle) * radius };
 		auto const y { center.y() + std::sin(angle) * radius };
-		m_batch_vertices.push_back(detail::GraphicsVertex {
-		    .u = 0.0f,
-		    .v = 0.0f,
-		    .color = color_u32,
-		    .x = x,
-		    .y = y,
-		    .z = 0.0f,
-		});
+		vertices[static_cast<size_t>(i) + 1] = detail::GraphicsVertex {
+			.u = 0.0f,
+			.v = 0.0f,
+			.color = color_u32,
+			.x = x,
+			.y = y,
+			.z = 0.0f,
+		};
 	}
 
 	for (int i {}; i < seg_count; ++i) {
-		m_batch_indices.push_back(base);
-		m_batch_indices.push_back(static_cast<uint16_t>(base + i + 1));
-		m_batch_indices.push_back(static_cast<uint16_t>(base + i + 2));
+		auto const idx { static_cast<size_t>(i) * 3 };
+		indices[idx] = base;
+		indices[idx + 1] = static_cast<uint16_t>(base + i + 1);
+		indices[idx + 2] = static_cast<uint16_t>(base + i + 2);
 	}
 }
 
@@ -904,6 +925,12 @@ auto Renderer::push_quad(Texture const *const texture,
 
 	auto const color_u32 { smath::pack_unorm4x8(color) };
 	auto const base_index { static_cast<uint16_t>(m_batch_vertices.size()) };
+	auto const vertex_start { m_batch_vertices.size() };
+	m_batch_vertices.resize(vertex_start + 4);
+	auto *const vertices { m_batch_vertices.data() + vertex_start };
+	auto const index_start { m_batch_indices.size() };
+	m_batch_indices.resize(index_start + 6);
+	auto *const indices { m_batch_indices.data() + index_start };
 
 	float u0 {};
 	float v0 {};
@@ -923,45 +950,45 @@ auto Renderer::push_quad(Texture const *const texture,
 	auto const x1 { dst.position.x() + dst.size.x() };
 	auto const y1 { dst.position.y() + dst.size.y() };
 
-	m_batch_vertices.push_back(detail::GraphicsVertex {
-	    .u = u0,
-	    .v = v0,
-	    .color = color_u32,
-	    .x = x0,
-	    .y = y0,
-	    .z = 0.0f,
-	});
-	m_batch_vertices.push_back(detail::GraphicsVertex {
-	    .u = u1,
-	    .v = v0,
-	    .color = color_u32,
-	    .x = x1,
-	    .y = y0,
-	    .z = 0.0f,
-	});
-	m_batch_vertices.push_back(detail::GraphicsVertex {
-	    .u = u0,
-	    .v = v1,
-	    .color = color_u32,
-	    .x = x0,
-	    .y = y1,
-	    .z = 0.0f,
-	});
-	m_batch_vertices.push_back(detail::GraphicsVertex {
-	    .u = u1,
-	    .v = v1,
-	    .color = color_u32,
-	    .x = x1,
-	    .y = y1,
-	    .z = 0.0f,
-	});
+	vertices[0] = detail::GraphicsVertex {
+		.u = u0,
+		.v = v0,
+		.color = color_u32,
+		.x = x0,
+		.y = y0,
+		.z = 0.0f,
+	};
+	vertices[1] = detail::GraphicsVertex {
+		.u = u1,
+		.v = v0,
+		.color = color_u32,
+		.x = x1,
+		.y = y0,
+		.z = 0.0f,
+	};
+	vertices[2] = detail::GraphicsVertex {
+		.u = u0,
+		.v = v1,
+		.color = color_u32,
+		.x = x0,
+		.y = y1,
+		.z = 0.0f,
+	};
+	vertices[3] = detail::GraphicsVertex {
+		.u = u1,
+		.v = v1,
+		.color = color_u32,
+		.x = x1,
+		.y = y1,
+		.z = 0.0f,
+	};
 
-	m_batch_indices.push_back(base_index);
-	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 1));
-	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 2));
-	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 1));
-	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 3));
-	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 2));
+	indices[0] = base_index;
+	indices[1] = static_cast<uint16_t>(base_index + 1);
+	indices[2] = static_cast<uint16_t>(base_index + 2);
+	indices[3] = static_cast<uint16_t>(base_index + 1);
+	indices[4] = static_cast<uint16_t>(base_index + 3);
+	indices[5] = static_cast<uint16_t>(base_index + 2);
 }
 
 } // namespace Engine

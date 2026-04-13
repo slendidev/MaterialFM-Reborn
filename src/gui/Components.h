@@ -6,6 +6,7 @@
 #include <string_view>
 
 #include "gui/Context.h"
+#include "gui/Id.h"
 #include "gui/Node.h"
 
 namespace Gui::components
@@ -101,9 +102,19 @@ private:
 	std::shared_ptr<ToastControl> m_control {};
 
 	explicit Toast(std::shared_ptr<ToastControl> control);
+	friend auto toast(Context &ctx, Id key, ToastStyle const &style) -> Toast;
 	friend auto toast(
 	    Context &ctx, std::string_view key, ToastStyle const &style) -> Toast;
 };
+
+auto button(Context &ctx,
+    Id key,
+    std::string_view label,
+    std::optional<std::string_view> const icon_name,
+    std::function<void()> on_activate = {},
+    bool selectable = false,
+    FlexOptions const &options = FlexOptions::builder().build(),
+    ButtonStyle const &style = {}) -> void;
 
 auto button(Context &ctx,
     std::string_view key,
@@ -115,16 +126,30 @@ auto button(Context &ctx,
     ButtonStyle const &style = {}) -> void;
 
 auto sidebar(Context &ctx,
+    Id key,
+    FlexOptions const &options,
+    Context::ComposeFn const &fn,
+    SidebarStyle const &style = {}) -> void;
+
+auto sidebar(Context &ctx,
     std::string_view key,
     FlexOptions const &options,
     Context::ComposeFn const &fn,
     SidebarStyle const &style = {}) -> void;
 
 auto dialog(Context &ctx,
+    Id key,
+    FlexOptions const &options,
+    Context::ComposeFn const &fn,
+    DialogStyle const &style = {}) -> void;
+
+auto dialog(Context &ctx,
     std::string_view key,
     FlexOptions const &options,
     Context::ComposeFn const &fn,
     DialogStyle const &style = {}) -> void;
+
+auto toast(Context &ctx, Id key, ToastStyle const &style = {}) -> Toast;
 
 auto toast(Context &ctx, std::string_view key, ToastStyle const &style = {})
     -> Toast;

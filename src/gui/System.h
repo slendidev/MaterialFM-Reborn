@@ -17,6 +17,7 @@
 #include "engine/Math.h"
 #include "gui/Animation.h"
 #include "gui/IconAtlas.h"
+#include "gui/Id.h"
 #include "gui/Node.h"
 #include "gui/Theme.h"
 
@@ -157,15 +158,14 @@ public:
 	auto set_dialog_open(bool open) -> void;
 	auto set_hud_visible(bool visible) -> void;
 	auto get_hud_visible() const -> bool { return m_hud_visible; }
+	auto selected(Id key) const -> bool;
 	auto selected(std::string_view key) const -> bool;
 	auto stats() const -> Stats const & { return m_stats; }
 	auto set_icon_atlas(uint32_t image_id, IconAtlas const &atlas) -> void;
 	auto set_text_measure_fn(
 	    std::function<smath::Vec2(std::string_view, float)> fn) -> void;
-	auto sample_animation_ref(
-	    Animation::Ref const &ref, std::string_view owner_key) -> float;
-	template<typename T>
-	auto remember_state(std::string const &key, T init) -> T &
+	auto sample_animation_ref(Animation::Ref const &ref, Id owner_key) -> float;
+	template<typename T> auto remember_state(Id const key, T init) -> T &
 	{
 		m_state_touched.insert(key);
 		auto it { m_state_store.find(key) };
@@ -180,7 +180,7 @@ public:
 		return *stored;
 	}
 	template<typename T>
-	auto set_state_if_changed(std::string const &key, T value) -> bool
+	auto set_state_if_changed(Id const key, T value) -> bool
 	{
 		auto &stored { remember_state<T>(key, T {}) };
 		if constexpr (requires(T const &a, T const &b) {
@@ -196,7 +196,7 @@ public:
 		return true;
 	}
 	template<typename T, typename Fn>
-	auto update_state(std::string const &key, Fn &&fn) -> bool
+	auto update_state(Id const key, Fn &&fn) -> bool
 	{
 		auto before { remember_state<T>(key, T {}) };
 		auto next { before };
@@ -210,8 +210,7 @@ public:
 	auto dump_command_list_stdout(WindowHandle handle) const -> void;
 	auto dump_command_list_file(
 	    WindowHandle handle, std::string_view path) const -> bool;
-	auto memo_should_recompose(std::string const &key, uint64_t deps_hash)
-	    -> bool;
+	auto memo_should_recompose(Id key, uint64_t deps_hash) -> bool;
 	auto memo_store(Node const &node) -> void;
 	auto memo_restore(Node &node) -> bool;
 	auto mark_scope_recomposed(Scope scope) -> void;
@@ -222,7 +221,7 @@ public:
 	auto reconcile_node(Node *parent,
 	    Kind kind,
 	    Scope scope,
-	    std::string const &key,
+	    Id key,
 	    FlexOptions const &options) -> Node *;
 
 private:
@@ -261,7 +260,7 @@ private:
 		smath::Vec4 selected_icon_tint {};
 		smath::Vec4 scrim_color {};
 		uint16_t depth {};
-		std::string const *key {};
+		Id const *key {};
 		std::string const *label {};
 		std::string const *icon_name {};
 		uint16_t first_child { INVALID_NODE_INDEX };
@@ -274,11 +273,11 @@ private:
 	auto restore_memo_child(Node &parent, Node const &source) -> void;
 	auto build_render_cache_node(Node const &source, uint16_t depth)
 	    -> uint16_t;
-	auto find_node_by_key(std::string_view key) -> Node *;
+	auto find_node_by_key(Id key) -> Node *;
 	auto gather_focusables(Node &node, Scope scope, std::vector<Node *> &out)
 	    -> void;
-	auto active_scope_focus_key() -> std::string &;
-	auto active_scope_focus_key() const -> std::string const &;
+	auto active_scope_focus_key() -> Id &;
+	auto active_scope_focus_key() const -> Id const &;
 	auto sync_focus() -> void;
 	auto focused_node() -> Node *;
 	auto ensure_focus_visible(Node &node) -> void;
@@ -294,21 +293,21 @@ private:
 	auto render_node(std::vector<DrawCommand> &draw_list,
 	    uint16_t node_index,
 	    Engine::Rect<> const clip_rect,
-	    std::string_view focused_key,
+	    Id focused_key,
 	    bool parent_pressable_focused,
 	    bool parent_pressable_selected) -> void;
 	auto draw_debug_bounds(std::vector<DrawCommand> &draw_list,
 	    Engine::Rect<> const rect,
 	    uint16_t depth,
-	    std::string_view key,
+	    Id key,
 	    Engine::Rect<> const clip_rect,
 	    bool overlay) -> void;
 	auto draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void;
 	auto tick_sidebar_animation(float dt) -> void;
 	auto tick_scroll_animation(float dt) -> void;
 	auto tick_node_animations(float dt, bool advance) -> void;
-	auto resolve_animated_float(
-	    Animation::Ref const &ref, std::string_view owner_key) -> float;
+	auto resolve_animated_float(Animation::Ref const &ref, Id owner_key)
+	    -> float;
 	auto dump_tree_line(std::string &out, Node const &node, size_t indent) const
 	    -> void;
 	auto handle_input() -> void;
@@ -346,11 +345,11 @@ private:
 	bool m_confirm_released {};
 	bool m_prev_confirm_down {};
 	bool m_confirm_hold_consumed {};
-	std::unordered_set<std::string> m_selected {};
-	std::string m_pending_selectable_activation {};
-	std::string m_root_focus_key {};
-	std::string m_sidebar_focus_key {};
-	std::string m_dialog_focus_key {};
+	std::unordered_set<Id, IdHash> m_selected {};
+	Id m_pending_selectable_activation {};
+	Id m_root_focus_key {};
+	Id m_sidebar_focus_key {};
+	Id m_dialog_focus_key {};
 	float m_vertical_nav_anchor_x {};
 	float m_horizontal_nav_anchor_y {};
 	bool m_has_vertical_nav_anchor_x {};
@@ -365,7 +364,7 @@ private:
 		bool has_target_x {};
 		bool has_target_y {};
 	};
-	std::unordered_map<std::string, ScrollTweenState> m_scroll_tweens {};
+	std::unordered_map<Id, ScrollTweenState, IdHash> m_scroll_tweens {};
 	struct TweenTrack
 	{
 		Animation::Tween tween {};
@@ -375,16 +374,16 @@ private:
 		bool has_generation {};
 		bool initialized {};
 	};
-	std::unordered_map<std::string, TweenTrack> m_tween_tracks {};
-	std::unordered_map<std::string, std::any> m_state_store {};
-	std::unordered_set<std::string> m_state_touched {};
+	std::unordered_map<Id, TweenTrack, IdHash> m_tween_tracks {};
+	std::unordered_map<Id, std::any, IdHash> m_state_store {};
+	std::unordered_set<Id, IdHash> m_state_touched {};
 	std::function<smath::Vec2(std::string_view, float)> m_text_measure_fn {};
 	uint32_t m_icon_image_id {};
 	std::unordered_map<std::string, Engine::Rect<>> m_icon_rects {};
-	std::unordered_map<std::string, uint64_t> m_memo_deps {};
-	std::unordered_map<std::string, std::vector<std::unique_ptr<Node>>>
+	std::unordered_map<Id, uint64_t, IdHash> m_memo_deps {};
+	std::unordered_map<Id, std::vector<std::unique_ptr<Node>>, IdHash>
 	    m_memo_children {};
-	std::unordered_map<std::string, std::unique_ptr<Node>> m_reconcile_nodes {};
+	std::unordered_map<Id, std::unique_ptr<Node>, IdHash> m_reconcile_nodes {};
 	std::vector<std::unique_ptr<Node>> m_node_pool {};
 	std::vector<RenderNode> m_render_nodes {};
 	struct DebugLabelCandidate
@@ -392,7 +391,7 @@ private:
 		Engine::Rect<> rect {};
 		Engine::Rect<> clip_rect {};
 		smath::Vec4 color {};
-		std::string_view key {};
+		Id key {};
 		uint32_t order {};
 		bool overlay {};
 	};

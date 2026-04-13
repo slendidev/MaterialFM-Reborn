@@ -105,6 +105,10 @@ auto Application::on_update(float const dt) -> void
 		}
 	}
 
+	if (is_pressed(Engine::Button::Square)) {
+		request_exit();
+	}
+
 	m_gui.begin_frame(MAIN_WINDOW,
 	    Gui::Input {
 	        .up_pressed = is_pressed(Engine::Button::Up),
@@ -128,86 +132,89 @@ auto Application::on_update(float const dt) -> void
 	    });
 
 	m_gui.compose([&](Gui::Context &ui) {
-		auto toast { Gui::components::toast(ui, "status_toast") };
-		ui.flex("root",
+		auto toast { Gui::components::toast(ui, Gui::id("status_toast")) };
+		ui.flex(Gui::id("root"),
 		    Gui::FlexOptions::builder()
 		        .column()
 		        .padding(std::array<float, 4> { 10.0f, 10.0f, 0.0f, 10.0f })
 		        .gap(8.0f)
 		        .build(),
 		    [&](Gui::Context &ctx) {
-			    ctx.text("title",
+			    ctx.text(Gui::id("title"),
 			        "MaterialFM",
 			        Gui::TextStyle::builder()
 			            .size(20.0f)
 			            .color(m_gui.theme().on_surface)
 			            .selected_color(m_gui.theme().on_primary)
 			            .build());
-			    ctx.text("hint",
+			    ctx.text(Gui::id("hint"),
 			        "Hello there!",
 			        Gui::TextStyle::builder()
 			            .size(12.0f)
 			            .color(m_gui.theme().on_surface_variant)
 			            .selected_color(m_gui.theme().on_primary)
 			            .build());
-			    ctx.memo("library_memo", 0xA11CEu, [&](Gui::Context &memo_ctx) {
-				    memo_ctx.scrollable("library",
-				        Gui::ScrollOptions::builder()
-				            .height(138.0f)
-				            .padding(4.0f)
-				            .build(),
-				        [&](Gui::Context &scroll) {
-					        scroll.flex("library_list",
-					            Gui::FlexOptions::builder()
-					                .column()
-					                .gap(4.0f)
-					                .build(),
-					            [&](Gui::Context &list) {
-						            Gui::components::button(
-						                list,
-						                "track_1",
-						                "Track 1",
-						                std::nullopt,
-						                [&]() {
-							                assets().play_song(song_handle);
-						                },
-						                true);
-						            for (int i = 2; i < 10; i++) {
-							            Gui::components::button(
-							                list,
-							                std::format("track_{}", i),
-							                std::format("Track {}", i),
-							                std::nullopt,
-							                [&]() {
-								                assets().play_sound(sfx_handle);
-							                },
-							                true);
-						            }
-					            });
-				        });
-			    });
+			    ctx.memo(Gui::id("library_memo"),
+			        0xA11CEu,
+			        [&](Gui::Context &memo_ctx) {
+				        memo_ctx.scrollable(Gui::id("library"),
+				            Gui::ScrollOptions::builder()
+				                .height(138.0f)
+				                .padding(4.0f)
+				                .build(),
+				            [&](Gui::Context &scroll) {
+					            scroll.flex(Gui::id("library_list"),
+					                Gui::FlexOptions::builder()
+					                    .column()
+					                    .gap(4.0f)
+					                    .build(),
+					                [&](Gui::Context &list) {
+						                Gui::components::button(
+						                    list,
+						                    Gui::id("track_1"),
+						                    "Track 1",
+						                    std::nullopt,
+						                    [&]() {
+							                    assets().play_song(song_handle);
+						                    },
+						                    true);
+						                for (int i = 2; i < 10; i++) {
+							                Gui::components::button(
+							                    list,
+							                    std::format("track_{}", i),
+							                    std::format("Track {}", i),
+							                    std::nullopt,
+							                    [&]() {
+								                    assets().play_sound(
+								                        sfx_handle);
+							                    },
+							                    true);
+						                }
+					                });
+				            });
+			        });
 		    });
 
 		Gui::components::sidebar(ui,
-		    "drawer",
+		    Gui::id("drawer"),
 		    Gui::FlexOptions::builder()
 		        .column()
 		        .padding(10.0f)
 		        .gap(8.0f)
 		        .build(),
 		    [&](Gui::Context &drawer) {
-			    auto const box_pulse {
-				    Gui::Animation::Definition::builder("red_box_pulse")
-				        .from(20.0f)
-				        .to(40.0f)
-				        .duration(0.72f)
-				        .easing(Gui::Animation::Easing::EaseInOutSine)
-				        .repeat(Gui::Animation::RepeatMode::PingPong)
-				        .pause_if(drawer.visibility_pause_condition())
-				        .build(),
-			    };
+			    // auto const box_pulse {
+			    //         Gui::Animation::Definition::builder("red_box_pulse")
+			    //             .from(20.0f)
+			    //             .to(40.0f)
+			    //             .duration(0.72f)
+			    //             .easing(Gui::Animation::Easing::EaseInOutSine)
+			    //             .repeat(Gui::Animation::RepeatMode::PingPong)
+			    //             .pause_if(drawer.visibility_pause_condition())
+			    //             .build(),
+			    // };
 
-			    drawer.text("drawer_title",
+			    drawer.text(Gui::id("drawer_title"),
 			        "Navigation",
 			        Gui::TextStyle::builder()
 			            .size(17.0f)
@@ -215,16 +222,16 @@ auto Application::on_update(float const dt) -> void
 			            .selected_color(m_gui.theme().on_primary)
 			            .build());
 			    Gui::components::button(
-			        drawer, "drawer_home", "Home", "menu", [toast]() {
+			        drawer, Gui::id("drawer_home"), "Home", "menu", [toast]() {
 				        toast.show("Home unimplemented");
 			        });
 			    Gui::components::button(drawer,
-			        "drawer_settings",
+			        Gui::id("drawer_settings"),
 			        "Settings",
 			        "settings",
 			        [toast]() { toast.show("Settings unimplemented"); });
 			    Gui::components::button(drawer,
-			        "drawer_stop",
+			        Gui::id("drawer_stop"),
 			        "Stop Song",
 			        "archive",
 			        [&, toast]() {
@@ -240,7 +247,7 @@ auto Application::on_update(float const dt) -> void
 			            .color(m_gui.theme().on_surface)
 			            .selected_color(m_gui.theme().on_primary)
 			            .build());
-			    drawer.flex("counter_controls",
+			    drawer.flex(Gui::id("counter_controls"),
 			        Gui::FlexOptions::builder().row().gap(6.0f).build(),
 			        [&](Gui::Context &controls) {
 				        Gui::components::button(
@@ -271,20 +278,20 @@ auto Application::on_update(float const dt) -> void
 				            });
 			        });
 
-			    drawer.surface("animated_surface",
-			        Gui::FlexOptions::builder()
-			            .width(box_pulse.get_ref())
-			            .height(box_pulse.get_ref())
-			            .align_self(Gui::AlignSelf::Start)
-			            .build(),
-			        Gui::SurfaceStyle::builder()
-			            .fill_color(Engine::Color::RED)
-			            .build(),
-			        [&](Gui::Context &) { });
+			    // drawer.surface(Gui::id("animated_surface"),
+			    //     Gui::FlexOptions::builder()
+			    //         .width(box_pulse.get_ref())
+			    //         .height(box_pulse.get_ref())
+			    //         .align_self(Gui::AlignSelf::Start)
+			    //         .build(),
+			    //     Gui::SurfaceStyle::builder()
+			    //         .fill_color(Engine::Color::RED)
+			    //         .build(),
+			    //     [&](Gui::Context &) { });
 		    });
 
 		Gui::components::dialog(ui,
-		    "actions_dialog",
+		    Gui::id("actions_dialog"),
 		    Gui::FlexOptions::builder()
 		        .column()
 		        .padding(12.0f)
@@ -292,25 +299,28 @@ auto Application::on_update(float const dt) -> void
 		        .min_width(200.0f)
 		        .build(),
 		    [&](Gui::Context &dialog) {
-			    dialog.text("dialog_title",
+			    dialog.text(Gui::id("dialog_title"),
 			        "Actions",
 			        Gui::TextStyle::builder()
 			            .size(17.0f)
 			            .color(m_gui.theme().on_surface)
 			            .selected_color(m_gui.theme().on_primary)
 			            .build());
-			    Gui::components::button(
-			        dialog, "dialog_play", "Play Song", std::nullopt, [&]() {
-				        assets().play_song(song_handle);
-			        });
-			    Gui::components::button(
-			        dialog, "dialog_pause", "Pause Song", std::nullopt, [&]() {
-				        assets().pause_song();
-			        });
-			    Gui::components::button(
-			        dialog, "dialog_close", "Close", std::nullopt, [&]() {
-				        m_gui.set_dialog_open(false);
-			        });
+			    Gui::components::button(dialog,
+			        Gui::id("dialog_play"),
+			        "Play Song",
+			        std::nullopt,
+			        [&]() { assets().play_song(song_handle); });
+			    Gui::components::button(dialog,
+			        Gui::id("dialog_pause"),
+			        "Pause Song",
+			        std::nullopt,
+			        [&]() { assets().pause_song(); });
+			    Gui::components::button(dialog,
+			        Gui::id("dialog_close"),
+			        "Close",
+			        std::nullopt,
+			        [&]() { m_gui.set_dialog_open(false); });
 		    });
 	});
 

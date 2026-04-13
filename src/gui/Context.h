@@ -11,6 +11,7 @@
 
 #include "engine/Math.h"
 #include "gui/Animation.h"
+#include "gui/Id.h"
 #include "gui/Node.h"
 #include "gui/System.h"
 
@@ -348,6 +349,31 @@ public:
 
 	Context(System &system, Node *root);
 
+	auto text(Id key,
+	    std::string_view label,
+	    TextStyle style = {},
+	    FlexOptions const &options = FlexOptions::builder().build()) -> void;
+	auto memo(Id key, uint64_t deps_hash, ComposeFn const &fn) -> void;
+	auto spacer(Id key, float height) -> void;
+	auto icon(Id key, std::string_view icon_name, IconStyle style = {}) -> void;
+	auto surface(Id key,
+	    FlexOptions const &options,
+	    SurfaceStyle style,
+	    ComposeFn const &fn) -> void;
+	auto pressable(Id key,
+	    FlexOptions const &options,
+	    std::function<void()> on_activate,
+	    bool selectable,
+	    ComposeFn const &fn) -> void;
+	auto layer(Id key,
+	    LayerPresentation presentation,
+	    FlexOptions const &options,
+	    LayerStyle style,
+	    ComposeFn const &fn) -> void;
+	auto flex(Id key, FlexOptions const &options, ComposeFn const &fn) -> void;
+	auto scrollable(Id key, ScrollOptions const &options, ComposeFn const &fn)
+	    -> void;
+
 	auto text(std::string_view key,
 	    std::string_view label,
 	    TextStyle style = {},
@@ -389,18 +415,19 @@ public:
 	auto request_recompose() -> void;
 	auto system() -> System & { return m_system; }
 	template<typename T> auto remember(std::string_view key, T init) -> T &;
+	template<typename T> auto remember(Id key, T init) -> T &;
 	template<typename T>
 	auto mutable_state_of(std::string_view key, T init) -> MutableState<T>;
+	template<typename T>
+	auto mutable_state_of(Id key, T init) -> MutableState<T>;
 	auto selection_mode() const -> bool;
 	auto window_rect() const -> Engine::Rect<> const &;
 	auto theme() const -> Theme const &;
 
 private:
-	auto push_node(Kind kind,
-	    std::string_view key,
-	    Scope scope,
-	    FlexOptions const &options) -> Node *;
-	auto push_node(Kind kind, std::string_view key, Scope scope) -> Node *;
+	auto push_node(Kind kind, Id key, Scope scope, FlexOptions const &options)
+	    -> Node *;
+	auto push_node(Kind kind, Id key, Scope scope) -> Node *;
 	auto pop_node() -> void;
 
 	System &m_system;
@@ -413,12 +440,19 @@ private:
 template<typename T>
 auto Context::remember(std::string_view const key, T init) -> T &
 {
+	return remember<T>(id(key), std::move(init));
+}
+
+template<typename T> auto Context::remember(Id const key, T init) -> T &
+{
 	if (m_current == nullptr) {
 		static T fallback {};
 		fallback = std::move(init);
 		return fallback;
 	}
-	auto full_key { m_current->key + "/@state/" + std::string(key) };
+	auto const full_key {
+		combine_id(combine_id(m_current->key, id("@state")), key),
+	};
 	return m_system.remember_state<T>(full_key, std::move(init));
 }
 
@@ -426,10 +460,18 @@ template<typename T>
 auto Context::mutable_state_of(std::string_view const key, T init)
     -> MutableState<T>
 {
+	return mutable_state_of<T>(id(key), std::move(init));
+}
+
+template<typename T>
+auto Context::mutable_state_of(Id const key, T init) -> MutableState<T>
+{
 	if (m_current == nullptr) {
 		return MutableState<T> {};
 	}
-	auto full_key { m_current->key + "/@state/" + std::string(key) };
+	auto const full_key {
+		combine_id(combine_id(m_current->key, id("@state")), key),
+	};
 	m_system.remember_state<T>(full_key, std::move(init));
 	return MutableState<T> {
 		[system = &m_system, full_key]() -> T const & {
