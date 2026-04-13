@@ -204,16 +204,16 @@ auto Application::on_update(float const dt) -> void
 		        .gap(8.0f)
 		        .build(),
 		    [&](Gui::Context &drawer) {
-			    // auto const box_pulse {
-			    //         Gui::Animation::Definition::builder("red_box_pulse")
-			    //             .from(20.0f)
-			    //             .to(40.0f)
-			    //             .duration(0.72f)
-			    //             .easing(Gui::Animation::Easing::EaseInOutSine)
-			    //             .repeat(Gui::Animation::RepeatMode::PingPong)
-			    //             .pause_if(drawer.visibility_pause_condition())
-			    //             .build(),
-			    // };
+			    auto const box_pulse {
+				    Gui::Animation::Definition::builder("red_box_pulse")
+				        .from(20.0f)
+				        .to(40.0f)
+				        .duration(0.72f)
+				        .easing(Gui::Animation::Easing::EaseInOutSine)
+				        .repeat(Gui::Animation::RepeatMode::PingPong)
+				        .pause_if(drawer.visibility_pause_condition())
+				        .build(),
+			    };
 
 			    drawer.text(Gui::id("drawer_title"),
 			        "Navigation",
@@ -279,16 +279,16 @@ auto Application::on_update(float const dt) -> void
 				            });
 			        });
 
-			    // drawer.surface(Gui::id("animated_surface"),
-			    //     Gui::FlexOptions::builder()
-			    //         .width(box_pulse.get_ref())
-			    //         .height(box_pulse.get_ref())
-			    //         .align_self(Gui::AlignSelf::Start)
-			    //         .build(),
-			    //     Gui::SurfaceStyle::builder()
-			    //         .fill_color(Engine::Color::RED)
-			    //         .build(),
-			    //     [&](Gui::Context &) { });
+			    drawer.surface(Gui::id("animated_surface"),
+			        Gui::FlexOptions::builder()
+			            .width(box_pulse.get_ref())
+			            .height(box_pulse.get_ref())
+			            .align_self(Gui::AlignSelf::Start)
+			            .build(),
+			        Gui::SurfaceStyle::builder()
+			            .fill_color(Engine::Color::RED)
+			            .build(),
+			        [&](Gui::Context &) { });
 		    });
 
 		Gui::components::dialog(ui,

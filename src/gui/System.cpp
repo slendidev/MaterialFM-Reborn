@@ -613,7 +613,9 @@ auto System::clone_node(Node const &source, Node *const parent) const
 	out->icon_tint = source.icon_tint;
 	out->selected_icon_tint = source.selected_icon_tint;
 	out->scrim_color = source.scrim_color;
-	out->rect = source.rect;
+	out->local_rect = source.local_rect;
+	out->world_rect = source.world_rect;
+	out->translation = source.translation;
 	out->recompose_count = source.recompose_count;
 	out->skip_count = source.skip_count;
 	out->on_activate = source.on_activate;
@@ -762,7 +764,7 @@ auto System::build_render_cache_node(Node const &source, uint16_t const depth)
 	auto const index { static_cast<uint16_t>(m_render_nodes.size()) };
 	m_render_nodes.push_back(RenderNode {
 	    .kind = source.kind,
-	    .rect = source.rect,
+	    .rect = source.world_rect,
 	    .text_size = source.text_size,
 	    .text_align_x = source.text_align_x,
 	    .text_align_y = source.text_align_y,
@@ -1010,6 +1012,9 @@ auto System::reconcile_node(Node *const parent,
 	node->icon_tint = smath::Vec4 {};
 	node->selected_icon_tint = smath::Vec4 {};
 	node->scrim_color = smath::Vec4 {};
+	node->local_rect = {};
+	node->world_rect = {};
+	node->translation = smath::Vec2 { 0.0f, 0.0f };
 	node->on_activate = {};
 	node->children.clear();
 	if (!reused) {
@@ -1124,7 +1129,7 @@ auto System::sync_focus() -> void
 	auto *focused { find_node_by_key(scope_key) };
 	if (focused != nullptr) {
 		auto const center {
-			focused->rect.position + (focused->rect.size * 0.5f),
+			focused->world_rect.position + (focused->world_rect.size * 0.5f),
 		};
 
 		if (had_to_replace_focus || !m_has_vertical_nav_anchor_x) {
@@ -1149,25 +1154,25 @@ auto System::ensure_focus_visible(Node &node) -> void
 	while (parent != nullptr) {
 		if (parent->kind == Kind::Scrollable) {
 			auto const top {
-				parent->rect.position.y() + parent->padding_top,
+				parent->world_rect.position.y() + parent->padding_top,
 			};
 			auto const bottom {
-				parent->rect.position.y() + parent->rect.size.y()
+				parent->world_rect.position.y() + parent->world_rect.size.y()
 				    - parent->padding_bottom,
 			};
-			auto const node_top { node.rect.position.y() };
-			auto const node_bottom { node.rect.position.y()
-				+ node.rect.size.y() };
+			auto const node_top { node.world_rect.position.y() };
+			auto const node_bottom { node.world_rect.position.y()
+				+ node.world_rect.size.y() };
 			auto const left {
-				parent->rect.position.x() + parent->padding_left,
+				parent->world_rect.position.x() + parent->padding_left,
 			};
 			auto const right {
-				parent->rect.position.x() + parent->rect.size.x()
+				parent->world_rect.position.x() + parent->world_rect.size.x()
 				    - parent->padding_right,
 			};
-			auto const node_left { node.rect.position.x() };
-			auto const node_right { node.rect.position.x()
-				+ node.rect.size.x() };
+			auto const node_left { node.world_rect.position.x() };
+			auto const node_right { node.world_rect.position.x()
+				+ node.world_rect.size.x() };
 
 			if ((parent->scroll_axis == ScrollAxis::Vertical
 			        || parent->scroll_axis == ScrollAxis::Both)
@@ -1193,20 +1198,20 @@ auto System::ensure_focus_visible(Node &node) -> void
 			auto const max_scroll {
 				std::max(0.0f,
 				    parent->content_height
-				        - (parent->rect.size.y() - parent->padding_top
+				        - (parent->world_rect.size.y() - parent->padding_top
 				            - parent->padding_bottom)),
 			};
 			auto const max_scroll_x {
 				std::max(0.0f,
 				    parent->content_width
-				        - (parent->rect.size.x() - parent->padding_left
+				        - (parent->world_rect.size.x() - parent->padding_left
 				            - parent->padding_right)),
 			};
 			parent->scroll_target_y
 			    = std::clamp(parent->scroll_target_y, 0.0f, max_scroll);
 			parent->scroll_target_x
 			    = std::clamp(parent->scroll_target_x, 0.0f, max_scroll_x);
-			m_layout_dirty = true;
+			m_world_dirty = true;
 			m_visual_dirty = true;
 		}
 		parent = parent->parent;
@@ -1253,7 +1258,6 @@ auto System::handle_input() -> void
 		return;
 	}
 
-	sync_focus();
 	auto *focused { focused_node() };
 	if (focused == nullptr) {
 		focused = focusables.front();
@@ -1269,10 +1273,10 @@ auto System::handle_input() -> void
 
 			auto changed { false };
 			auto const viewport_w { std::max(1.0f,
-				scroll_parent->rect.size.x() - scroll_parent->padding_left
+				scroll_parent->world_rect.size.x() - scroll_parent->padding_left
 				    - scroll_parent->padding_right) };
 			auto const viewport_h { std::max(1.0f,
-				scroll_parent->rect.size.y() - scroll_parent->padding_top
+				scroll_parent->world_rect.size.y() - scroll_parent->padding_top
 				    - scroll_parent->padding_bottom) };
 			auto const max_scroll_x {
 				std::max(0.0f, scroll_parent->content_width - viewport_w),
@@ -1313,7 +1317,7 @@ auto System::handle_input() -> void
 			}
 
 			if (changed) {
-				m_layout_dirty = true;
+				m_world_dirty = true;
 				m_visual_dirty = true;
 			}
 			scroll_parent = scroll_parent->parent;
@@ -1327,8 +1331,8 @@ auto System::handle_input() -> void
 
 	auto center_of = [](Node const *const node) {
 		return smath::Vec2 {
-			node->rect.position.x() + node->rect.size.x() * 0.5f,
-			node->rect.position.y() + node->rect.size.y() * 0.5f,
+			node->world_rect.position.x() + node->world_rect.size.x() * 0.5f,
+			node->world_rect.position.y() + node->world_rect.size.y() * 0.5f,
 		};
 	};
 
@@ -1338,12 +1342,12 @@ auto System::handle_input() -> void
 		}
 
 		auto const base_center { center_of(focused) };
-		auto const base_left { focused->rect.position.x() };
-		auto const base_right { focused->rect.position.x()
-			+ focused->rect.size.x() };
-		auto const base_top { focused->rect.position.y() };
-		auto const base_bottom { focused->rect.position.y()
-			+ focused->rect.size.y() };
+		auto const base_left { focused->world_rect.position.x() };
+		auto const base_right { focused->world_rect.position.x()
+			+ focused->world_rect.size.x() };
+		auto const base_top { focused->world_rect.position.y() };
+		auto const base_bottom { focused->world_rect.position.y()
+			+ focused->world_rect.size.y() };
 
 		auto const cross_anchor {
 			dir_x != 0
@@ -1390,13 +1394,15 @@ auto System::handle_input() -> void
 				primary = dy;
 			}
 
-			auto const candidate_left { candidate->rect.position.x() };
+			auto const candidate_left { candidate->world_rect.position.x() };
 			auto const candidate_right {
-				candidate->rect.position.x() + candidate->rect.size.x(),
+				candidate->world_rect.position.x()
+				    + candidate->world_rect.size.x(),
 			};
-			auto const candidate_top { candidate->rect.position.y() };
+			auto const candidate_top { candidate->world_rect.position.y() };
 			auto const candidate_bottom {
-				candidate->rect.position.y() + candidate->rect.size.y(),
+				candidate->world_rect.position.y()
+				    + candidate->world_rect.size.y(),
 			};
 
 			auto const in_beam {
@@ -1455,13 +1461,15 @@ auto System::handle_input() -> void
 			}
 
 			auto const candidate_center { center_of(candidate) };
-			auto const candidate_left { candidate->rect.position.x() };
+			auto const candidate_left { candidate->world_rect.position.x() };
 			auto const candidate_right {
-				candidate->rect.position.x() + candidate->rect.size.x(),
+				candidate->world_rect.position.x()
+				    + candidate->world_rect.size.x(),
 			};
-			auto const candidate_top { candidate->rect.position.y() };
+			auto const candidate_top { candidate->world_rect.position.y() };
 			auto const candidate_bottom {
-				candidate->rect.position.y() + candidate->rect.size.y(),
+				candidate->world_rect.position.y()
+				    + candidate->world_rect.size.y(),
 			};
 
 			auto const in_beam {
@@ -1542,7 +1550,7 @@ auto System::handle_input() -> void
 		focused = next_focus;
 
 		auto const center {
-			focused->rect.position + (focused->rect.size * 0.5f),
+			focused->world_rect.position + (focused->world_rect.size * 0.5f),
 		};
 
 		if (m_input.left_pressed || m_input.right_pressed) {
@@ -1619,7 +1627,7 @@ auto System::tick_sidebar_animation(float const dt) -> void
 	m_sidebar_tween.tick(dt);
 	m_sidebar_progress = m_sidebar_tween.value();
 	if (!approx_equal(m_sidebar_progress, before)) {
-		m_layout_dirty = true;
+		m_world_dirty = true;
 		m_visual_dirty = true;
 		m_sidebar_dirty = true;
 	}
@@ -1677,7 +1685,7 @@ auto System::tick_scroll_animation(float const dt) -> void
 			}
 			if (!approx_equal(node.scroll_x, before_x)
 			    || !approx_equal(node.scroll_y, before_y)) {
-				m_layout_dirty = true;
+				m_world_dirty = true;
 				m_visual_dirty = true;
 			}
 		}
@@ -1788,23 +1796,24 @@ auto System::layout_node(Node &node,
 	m_stats.relaid_out_nodes += 1;
 
 	if (node.kind == Kind::Text) {
-		node.rect.position = smath::Vec2 { x, y };
-		node.rect.size = smath::Vec2 { width, node.text_size + 6.0f };
-		return node.rect.size.y();
+		auto const measured { measure_leaf(node) };
+		node.local_rect.position = smath::Vec2 { x, y };
+		node.local_rect.size = smath::Vec2 { measured.width, measured.height };
+		return node.local_rect.size.y();
 	}
 	if (node.kind == Kind::Icon) {
-		node.rect.position = smath::Vec2 { x, y };
-		node.rect.size = smath::Vec2 { node.icon_size, node.icon_size };
-		return node.rect.size.y();
+		node.local_rect.position = smath::Vec2 { x, y };
+		node.local_rect.size = smath::Vec2 { node.icon_size, node.icon_size };
+		return node.local_rect.size.y();
 	}
 	if (node.kind == Kind::Memo) {
-		node.rect.position = smath::Vec2 { x, y };
-		node.rect.size = smath::Vec2 { width, 0.0f };
+		node.local_rect.position = smath::Vec2 { x, y };
+		node.local_rect.size = smath::Vec2 { width, 0.0f };
 	}
 	if (node.kind == Kind::Spacer) {
-		node.rect.position = smath::Vec2 { x, y };
-		node.rect.size = smath::Vec2 { width, node.fixed_height };
-		return node.rect.size.y();
+		node.local_rect.position = smath::Vec2 { x, y };
+		node.local_rect.size = smath::Vec2 { width, node.fixed_height };
+		return node.local_rect.size.y();
 	}
 
 	auto const is_flex_like { node.kind == Kind::Flex
@@ -1812,13 +1821,11 @@ auto System::layout_node(Node &node,
 		|| node.kind == Kind::Layer };
 	if (!is_flex_like && node.kind != Kind::Scrollable
 	    && node.kind != Kind::Memo) {
-		node.rect.position = smath::Vec2 { x, y };
-		node.rect.size = smath::Vec2 { width, node.fixed_height };
-		return node.rect.size.y();
+		node.local_rect.position = smath::Vec2 { x, y };
+		node.local_rect.size = smath::Vec2 { width, node.fixed_height };
+		return node.local_rect.size.y();
 	}
 
-	auto rect_x { x };
-	auto rect_y { y };
 	auto rect_width { width };
 	auto rect_height { node.fixed_height > 0.0f ? node.fixed_height
 		                                        : height_constraint };
@@ -1845,26 +1852,18 @@ auto System::layout_node(Node &node,
 			rect_width = node.fixed_width > 0.0f ? node.fixed_width
 			                                     : DEFAULT_DRAWER_WIDTH;
 			rect_height = m_window_rect.size.y();
-			rect_x = -rect_width + (rect_width * m_sidebar_progress);
-			rect_y = 0.0f;
 		} else if (node.layer_presentation == LayerPresentation::Modal) {
 			rect_width = node.fixed_width > 0.0f ? node.fixed_width
 			                                     : DEFAULT_MODAL_WIDTH;
 			rect_height = node.fixed_height > 0.0f ? node.fixed_height
 			                                       : DEFAULT_MODAL_HEIGHT;
-			rect_x = m_window_rect.position.x()
-			    + (m_window_rect.size.x() - rect_width) * 0.5f;
-			rect_y = m_window_rect.position.y()
-			    + (m_window_rect.size.y() - rect_height) * 0.5f;
 		} else {
 			rect_width = m_window_rect.size.x();
 			rect_height = m_window_rect.size.y();
-			rect_x = m_window_rect.position.x();
-			rect_y = m_window_rect.position.y();
 		}
 	}
 
-	node.rect.position = smath::Vec2 { rect_x, rect_y };
+	node.local_rect.position = smath::Vec2 { x, y };
 	auto inner_width { std::max(
 		0.0f, rect_width - (node.padding_left + node.padding_right)) };
 	auto const bounded_height { rect_height > 0.0f };
@@ -1874,8 +1873,8 @@ auto System::layout_node(Node &node,
 		          0.0f, rect_height - (node.padding_top + node.padding_bottom))
 		    : 0.0f,
 	};
-	auto const inner_x { rect_x + node.padding_left };
-	auto const inner_y { rect_y + node.padding_top };
+	auto const inner_x { node.padding_left };
+	auto const inner_y { node.padding_top };
 
 	auto const layout_scrollable = [&]() -> float {
 		auto layout_inner_width { inner_width };
@@ -1894,13 +1893,15 @@ auto System::layout_node(Node &node,
 		auto const stack_gap {
 			stacks_horizontally ? node.column_gap : node.row_gap,
 		};
-		auto stack_cursor_x { inner_x - node.scroll_x };
-		auto stack_cursor_y { inner_y - node.scroll_y };
+		auto stack_cursor_x { inner_x };
+		auto stack_cursor_y { inner_y };
 		auto max_right { inner_x };
 		auto max_bottom { inner_y };
+
 		for (size_t i {}; i < node.children.size(); ++i) {
 			auto &child_ptr { node.children[i] };
 			auto &child { *child_ptr };
+
 			auto const child_x { stack_cursor_x };
 			auto const child_y { stack_cursor_y };
 			auto const child_height_constraint {
@@ -1909,24 +1910,29 @@ auto System::layout_node(Node &node,
 				    ? 0.0f
 				    : (inner_height > 0.0f ? inner_height : 0.0f),
 			};
+
 			layout_node(child,
 			    child_x,
 			    child_y,
 			    layout_inner_width,
 			    child_height_constraint);
-			auto const content_x { child.rect.position.x() + node.scroll_x };
-			auto const content_y { child.rect.position.y() + node.scroll_y };
-			max_right = std::max(max_right, content_x + child.rect.size.x());
-			max_bottom = std::max(max_bottom, content_y + child.rect.size.y());
+
+			auto const content_x { child.local_rect.position.x() };
+			auto const content_y { child.local_rect.position.y() };
+			max_right
+			    = std::max(max_right, content_x + child.local_rect.size.x());
+			max_bottom
+			    = std::max(max_bottom, content_y + child.local_rect.size.y());
 
 			auto const has_next { i + 1 < node.children.size() };
 			if (!has_next) {
 				continue;
 			}
+
 			if (stacks_horizontally) {
-				stack_cursor_x += child.rect.size.x() + stack_gap;
+				stack_cursor_x += child.local_rect.size.x() + stack_gap;
 			} else {
-				stack_cursor_y += child.rect.size.y() + stack_gap;
+				stack_cursor_y += child.local_rect.size.y() + stack_gap;
 			}
 		}
 		node.content_width = std::max(0.0f, max_right - inner_x);
@@ -1962,8 +1968,8 @@ auto System::layout_node(Node &node,
 		node.scroll_y = std::clamp(node.scroll_y, 0.0f, max_scroll_y);
 		node.scroll_x = std::clamp(node.scroll_x, 0.0f, max_scroll_x);
 
-		node.rect.size = smath::Vec2 { rect_width, rect_height };
-		return node.rect.size.y();
+		node.local_rect.size = smath::Vec2 { rect_width, rect_height };
+		return node.local_rect.size.y();
 	};
 
 	if (node.kind == Kind::Scrollable) {
@@ -2221,7 +2227,7 @@ auto System::layout_node(Node &node,
 				    child_w,
 				    child_h > 0.0f ? child_h : 0.0f);
 				if (is_row && child_h > 0.0f) {
-					item.node->rect.size.y() = child_h;
+					item.node->local_rect.size.y() = child_h;
 				}
 
 				if (reverse) {
@@ -2273,24 +2279,24 @@ auto System::layout_node(Node &node,
 		rect_height = std::min(rect_height, node.max_height);
 	}
 
-	node.rect.size = smath::Vec2 { rect_width, rect_height };
-	return node.rect.size.y();
+	node.local_rect.size = smath::Vec2 { rect_width, rect_height };
+	return node.local_rect.size.y();
 }
 
 auto System::layout_tree() -> void
 {
-	m_root->rect.position = m_window_rect.position;
-	m_root->rect.size = m_window_rect.size;
+	m_root->local_rect.position = smath::Vec2 { 0.0f, 0.0f };
+	m_root->local_rect.size = m_window_rect.size;
 
-	auto current_y { m_window_rect.position.y() };
+	auto current_y { 0.0f };
 
 	for (size_t i { 0 }; i < m_root->children.size(); ++i) {
 		auto &child { *m_root->children[i] };
 
 		if (child.kind == Kind::Layer) {
 			layout_node(child,
-			    m_window_rect.position.x(),
-			    m_window_rect.position.y(),
+			    0.0f,
+			    0.0f,
 			    m_window_rect.size.x(),
 			    m_window_rect.size.y());
 			continue;
@@ -2298,23 +2304,67 @@ auto System::layout_tree() -> void
 
 		auto const height {
 			layout_node(child,
-			    m_window_rect.position.x(),
+			    0.0f,
 			    current_y,
 			    m_window_rect.size.x(),
-			    m_window_rect.size.y()
-			        - (current_y - m_window_rect.position.y())),
+			    m_window_rect.size.y() - current_y),
 		};
 
 		current_y += height;
 	}
 
-	sync_focus();
-
-	m_render_nodes.clear();
-	m_render_nodes.reserve(NODE_POOL_MAX);
-	m_render_root_index = build_render_cache_node(*m_root, 0);
-
 	m_layout_dirty = false;
+	m_world_dirty = true;
+}
+
+auto System::update_world_tree() -> void
+{
+	if (m_root == nullptr) {
+		return;
+	}
+
+	update_world_node(*m_root,
+	    m_window_rect.position.x(),
+	    m_window_rect.position.y(),
+	    0.0f,
+	    0.0f);
+}
+
+auto System::update_world_node(Node &node,
+    float const parent_world_x,
+    float const parent_world_y,
+    float const parent_scroll_x,
+    float const parent_scroll_y) -> void
+{
+	if (node.kind == Kind::Layer
+	    && node.layer_presentation == LayerPresentation::Drawer) {
+		node.translation.x()
+		    = -(1.0f - m_sidebar_progress) * node.local_rect.size.x();
+		node.translation.y() = 0.0f;
+	}
+
+	node.world_rect.position = smath::Vec2 {
+		parent_world_x + node.local_rect.position.x() - parent_scroll_x
+		    + node.translation.x(),
+		parent_world_y + node.local_rect.position.y() - parent_scroll_y
+		    + node.translation.y(),
+	};
+	node.world_rect.size = node.local_rect.size;
+
+	float child_scroll_x { 0.0f };
+	float child_scroll_y { 0.0f };
+	if (node.kind == Kind::Scrollable) {
+		child_scroll_x = node.scroll_x;
+		child_scroll_y = node.scroll_y;
+	}
+
+	auto const child_base_x { node.world_rect.position.x() };
+	auto const child_base_y { node.world_rect.position.y() };
+
+	for (auto &child : node.children) {
+		update_world_node(
+		    *child, child_base_x, child_base_y, child_scroll_x, child_scroll_y);
+	}
 }
 
 auto System::render_node(std::vector<DrawCommand> &draw_list,
@@ -2334,9 +2384,6 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 	auto const &label { *node.label };
 	auto const &icon_name { *node.icon_name };
 	auto node_rect { node.rect };
-	if (node.kind == Kind::Layer) {
-		node_rect = m_window_rect;
-	}
 
 	auto const visible_rect { intersect_rects(node_rect, clip_rect) };
 	if (!visible_rect.has_value()) {
@@ -2782,6 +2829,15 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 	}
 	if (m_layout_dirty) {
 		layout_tree();
+		m_world_dirty = true;
+	}
+	if (m_world_dirty) {
+		update_world_tree();
+		sync_focus();
+		m_render_nodes.clear();
+		m_render_nodes.reserve(NODE_POOL_MAX);
+		m_render_root_index = build_render_cache_node(*m_root, 0);
+		m_world_dirty = false;
 	}
 
 	m_last_output.handle = handle;
@@ -2894,13 +2950,13 @@ auto System::dump_tree_line(
 	char line[256] {};
 	std::snprintf(line,
 	    sizeof(line),
-	    "%.*s rect=(%.1f,%.1f %.1fx%.1f) rc=%lu sk=%lu key=%08lx\n",
+	    "%.*s local_rect=(%.1f,%.1f %.1fx%.1f) rc=%lu sk=%lu key=%08lx\n",
 	    static_cast<int>(kind_name.size()),
 	    kind_name.data(),
-	    static_cast<double>(node.rect.position.x()),
-	    static_cast<double>(node.rect.position.y()),
-	    static_cast<double>(node.rect.size.x()),
-	    static_cast<double>(node.rect.size.y()),
+	    static_cast<double>(node.local_rect.position.x()),
+	    static_cast<double>(node.local_rect.position.y()),
+	    static_cast<double>(node.local_rect.size.x()),
+	    static_cast<double>(node.local_rect.size.y()),
 	    static_cast<unsigned long>(node.recompose_count),
 	    static_cast<unsigned long>(node.skip_count),
 	    static_cast<unsigned long>(node.key.value));

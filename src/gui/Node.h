@@ -176,7 +176,9 @@ struct Node
 	smath::Vec4 icon_tint {};
 	smath::Vec4 selected_icon_tint {};
 	smath::Vec4 scrim_color {};
-	Engine::Rect<> rect {};
+	Engine::Rect<> local_rect {};
+	Engine::Rect<> world_rect {};
+	smath::Vec2 translation {};
 	uint32_t recompose_count {};
 	uint32_t skip_count {};
 	std::function<void()> on_activate {};

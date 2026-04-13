@@ -287,6 +287,12 @@ private:
 	    float y,
 	    float width,
 	    float height_constraint = 0.0f) -> float;
+	auto update_world_tree() -> void;
+	auto update_world_node(Node &node,
+	    float parent_world_x,
+	    float parent_world_y,
+	    float parent_scroll_x,
+	    float parent_scroll_y) -> void;
 	auto measure_node(Node const &node, float available_width = 0.0f) const
 	    -> MeasuredSize;
 	auto measure_leaf(Node const &node) const -> MeasuredSize;
@@ -322,6 +328,7 @@ private:
 	float m_dt {};
 	bool m_structure_dirty { true };
 	bool m_layout_dirty { true };
+	bool m_world_dirty { true };
 	bool m_visual_dirty { true };
 	bool m_root_dirty { true };
 	bool m_sidebar_dirty { true };
