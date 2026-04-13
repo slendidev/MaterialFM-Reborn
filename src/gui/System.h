@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -325,7 +324,10 @@ private:
 	auto prune_state_store() -> void;
 
 	std::unique_ptr<Node> m_root {};
-	Theme m_theme {};
+	Theme m_theme {
+		MaterialThemeBuilder().build_from_seed(
+		    smath::Vec4 { 0.25f, 0.32f, 0.71f, 1.0f }, ThemeMode::Light),
+	};
 	Input m_input {};
 	float m_dt {};
 	bool m_structure_dirty { true };

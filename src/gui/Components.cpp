@@ -51,6 +51,58 @@ auto with_multiplied_alpha(smath::Vec4 color, float const alpha) -> smath::Vec4
 	return color;
 }
 
+auto resolve_color(std::optional<smath::Vec4> const &override_color,
+    smath::Vec4 fallback) -> smath::Vec4
+{
+	return override_color.value_or(fallback);
+}
+
+struct ResolvedButtonStyle
+{
+	smath::Vec4 fill {};
+	smath::Vec4 focused_fill {};
+	smath::Vec4 selected_fill {};
+	smath::Vec4 text_color {};
+	smath::Vec4 icon_tint {};
+	smath::Vec4 selected_text_color {};
+	smath::Vec4 selected_icon_tint {};
+	smath::Vec4 outline_color {};
+};
+
+auto resolve_button_style(Theme const &theme, ButtonStyle const &style)
+    -> ResolvedButtonStyle
+{
+	return ResolvedButtonStyle {
+		.fill = resolve_color(style.fill, theme.surface_container_low),
+		.focused_fill
+		= resolve_color(style.focused_fill, theme.secondary_container),
+		.selected_fill = resolve_color(style.selected_fill, theme.primary),
+		.text_color = resolve_color(style.text_color, theme.on_surface),
+		.icon_tint = resolve_color(style.icon_tint, theme.on_surface),
+		.selected_text_color
+		= resolve_color(style.selected_text_color, theme.on_primary),
+		.selected_icon_tint
+		= resolve_color(style.selected_icon_tint, theme.on_primary),
+		.outline_color = resolve_color(style.outline_color, theme.outline),
+	};
+}
+
+auto resolve_layer_fill(
+    Theme const &theme, std::optional<smath::Vec4> const &fill, float tonal_mix)
+    -> smath::Vec4
+{
+	return fill.value_or(
+	    mix_color(theme.surface_container_low, theme.primary, tonal_mix));
+}
+
+auto resolve_dialog_fill(
+    Theme const &theme, std::optional<smath::Vec4> const &fill, float tonal_mix)
+    -> smath::Vec4
+{
+	return fill.value_or(
+	    mix_color(theme.surface_container_high, theme.primary, tonal_mix));
+}
+
 struct ToastState
 {
 	bool active {};
@@ -94,6 +146,8 @@ auto button(Context &ctx,
     FlexOptions const &options,
     ButtonStyle const &style) -> void
 {
+	auto const resolved { resolve_button_style(ctx.theme(), style) };
+
 	ctx.pressable(key,
 	    FlexOptions::builder().height(style.height).merge(options).build(),
 	    std::move(on_activate),
@@ -107,10 +161,10 @@ auto button(Context &ctx,
 		            .use_pressable_state(true)
 		            .radius(style.corner_radius)
 		            .outline_thickness(style.outline_thickness)
-		            .fill_color(style.fill)
-		            .focus_fill_color(style.focused_fill)
-		            .selected_fill_color(style.selected_fill)
-		            .outline_color(style.outline_color)
+		            .fill_color(resolved.fill)
+		            .focus_fill_color(resolved.focused_fill)
+		            .selected_fill_color(resolved.selected_fill)
+		            .outline_color(resolved.outline_color)
 		            .build(),
 		        [&](Context &surface) {
 			        surface.flex(Gui::id("content"),
@@ -130,8 +184,9 @@ auto button(Context &ctx,
 					                IconStyle::builder()
 					                    .size(style.icon_size)
 					                    .use_pressable_state(true)
-					                    .tint(style.icon_tint)
-					                    .selected_tint(style.selected_icon_tint)
+					                    .tint(resolved.icon_tint)
+					                    .selected_tint(
+					                        resolved.selected_icon_tint)
 					                    .build());
 				            }
 				            content.text(Gui::id("label"),
@@ -139,8 +194,9 @@ auto button(Context &ctx,
 				                TextStyle::builder()
 				                    .size(style.text_size)
 				                    .use_pressable_state(true)
-				                    .color(style.text_color)
-				                    .selected_color(style.selected_text_color)
+				                    .color(resolved.text_color)
+				                    .selected_color(
+				                        resolved.selected_text_color)
 				                    .align_x(style.text_align_x)
 				                    .align_y(style.text_align_y)
 				                    .build(),
@@ -179,16 +235,18 @@ auto sidebar(Context &ctx,
 		return;
 	}
 	auto const &theme { ctx.theme() };
+	auto const scrim { style.scrim.value_or(theme.scrim) };
+	auto const fill { resolve_layer_fill(theme, style.fill, style.tonal_mix) };
+
 	ctx.layer(key,
 	    LayerPresentation::Drawer,
 	    FlexOptions::builder().width(style.width).build(),
 	    LayerStyle::builder()
 	        .draw_scrim(true)
-	        .scrim_color(style.scrim)
+	        .scrim_color(scrim)
 	        .draw_fill(true)
 	        .radius(style.corner_radius)
-	        .fill_color(
-	            mix_color(theme.surface, theme.primary, style.tonal_mix))
+	        .fill_color(fill)
 	        .build(),
 	    [&](Context &layer_ctx) {
 		    layer_ctx.flex(Gui::id("content"), options, fn);
@@ -231,6 +289,9 @@ auto dialog(Context &ctx,
 		                        : 0.0f,
 	};
 	auto const &theme { ctx.theme() };
+	auto const scrim { style.scrim.value_or(theme.scrim) };
+	auto const fill { resolve_dialog_fill(theme, style.fill, style.tonal_mix) };
+
 	ctx.layer(key,
 	    LayerPresentation::Modal,
 	    FlexOptions::builder()
@@ -239,7 +300,7 @@ auto dialog(Context &ctx,
 	        .build(),
 	    LayerStyle::builder()
 	        .draw_scrim(true)
-	        .scrim_color(style.scrim)
+	        .scrim_color(scrim)
 	        .draw_fill(false)
 	        .build(),
 	    [&](Context &layer_ctx) {
@@ -262,8 +323,7 @@ auto dialog(Context &ctx,
 			                .use_pressable_state(false)
 			                .radius(style.corner_radius)
 			                .outline_thickness(1.0f)
-			                .fill_color(mix_color(
-			                    theme.surface, theme.primary, style.tonal_mix))
+			                .fill_color(fill)
 			                .focus_fill_color(smath::Vec4 {})
 			                .selected_fill_color(smath::Vec4 {})
 			                .outline_color(smath::Vec4 {})
@@ -369,6 +429,10 @@ auto toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 	}
 	ctx.request_recompose();
 
+	auto const fill { style.fill.value_or(ctx.theme().inverse_surface) };
+	auto const text_color { style.text_color.value_or(
+		ctx.theme().inverse_on_surface) };
+
 	auto const window_rect { ctx.window_rect() };
 	ctx.layer(key_string,
 	    LayerPresentation::Hud,
@@ -403,8 +467,7 @@ auto toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 			                .draw_outline(false)
 			                .radius(std::max(control->style.corner_radius,
 			                    control->style.min_height * 0.5f))
-			                .fill_color(with_multiplied_alpha(
-			                    control->style.fill, alpha))
+			                .fill_color(with_multiplied_alpha(fill, alpha))
 			                .build(),
 			            [&](Context &card) {
 				            card.flex(Gui::id("content"),
@@ -427,12 +490,10 @@ auto toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 					                        .align_x(TextAlignX::Center)
 					                        .align_y(TextAlignY::Center)
 					                        .color(with_multiplied_alpha(
-					                            control->style.text_color,
-					                            alpha))
+					                            text_color, alpha))
 					                        .selected_color(
 					                            with_multiplied_alpha(
-					                                control->style.text_color,
-					                                alpha))
+					                                text_color, alpha))
 					                        .build());
 				                });
 			            });

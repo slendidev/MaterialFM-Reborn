@@ -8,6 +8,7 @@
 #include "gui/Context.h"
 #include "gui/Id.h"
 #include "gui/Node.h"
+#include "gui/Theme.h"
 
 namespace Gui::components
 {
@@ -23,16 +24,16 @@ struct ButtonStyle
 	float padding_y { 4.0f };
 	float icon_size { 24.0f };
 	float icon_gap { 8.0f };
-	smath::Vec4 fill { 0.93f, 0.94f, 0.97f, 1.0f };
-	smath::Vec4 focused_fill { 0.80f, 0.86f, 0.98f, 1.0f };
-	smath::Vec4 selected_fill { 0.12f, 0.31f, 0.85f, 1.0f };
-	smath::Vec4 text_color { 0.08f, 0.10f, 0.12f, 1.0f };
-	smath::Vec4 icon_tint { 0.08f, 0.10f, 0.12f, 1.0f };
-	smath::Vec4 selected_text_color { 1.0f, 1.0f, 1.0f, 1.0f };
-	smath::Vec4 selected_icon_tint { 1.0f, 1.0f, 1.0f, 1.0f };
+	std::optional<smath::Vec4> fill {};
+	std::optional<smath::Vec4> focused_fill {};
+	std::optional<smath::Vec4> selected_fill {};
+	std::optional<smath::Vec4> text_color {};
+	std::optional<smath::Vec4> icon_tint {};
+	std::optional<smath::Vec4> selected_text_color {};
+	std::optional<smath::Vec4> selected_icon_tint {};
 	bool draw_outline {};
 	float outline_thickness { 1.0f };
-	smath::Vec4 outline_color { 0.62f, 0.66f, 0.72f, 1.0f };
+	std::optional<smath::Vec4> outline_color {};
 	TextAlignX text_align_x { TextAlignX::Left };
 	TextAlignY text_align_y { TextAlignY::Center };
 };
@@ -46,16 +47,16 @@ struct MenuItemStyle
 	float icon_gap { 8.0f };
 	float padding_x { 8.0f };
 	float padding_y { 3.0f };
-	smath::Vec4 fill { 0.94f, 0.95f, 0.98f, 1.0f };
-	smath::Vec4 focused_fill { 0.83f, 0.88f, 0.98f, 1.0f };
-	smath::Vec4 selected_fill { 0.12f, 0.31f, 0.85f, 1.0f };
-	smath::Vec4 text_color { 0.08f, 0.10f, 0.12f, 1.0f };
-	smath::Vec4 selected_text_color { 1.0f, 1.0f, 1.0f, 1.0f };
-	smath::Vec4 icon_tint { 0.08f, 0.10f, 0.12f, 1.0f };
-	smath::Vec4 selected_icon_tint { 1.0f, 1.0f, 1.0f, 1.0f };
+	std::optional<smath::Vec4> fill {};
+	std::optional<smath::Vec4> focused_fill {};
+	std::optional<smath::Vec4> selected_fill {};
+	std::optional<smath::Vec4> text_color {};
+	std::optional<smath::Vec4> selected_text_color {};
+	std::optional<smath::Vec4> icon_tint {};
+	std::optional<smath::Vec4> selected_icon_tint {};
 	bool draw_outline {};
 	float outline_thickness { 1.0f };
-	smath::Vec4 outline_color { 0.62f, 0.66f, 0.72f, 1.0f };
+	std::optional<smath::Vec4> outline_color {};
 };
 
 struct DialogStyle
@@ -64,7 +65,8 @@ struct DialogStyle
 	float max_height_ratio { 0.85f };
 	float corner_radius { 10.0f };
 	float tonal_mix { 0.12f };
-	smath::Vec4 scrim { 0.02f, 0.04f, 0.08f, 0.55f };
+	std::optional<smath::Vec4> fill {};
+	std::optional<smath::Vec4> scrim {};
 };
 
 struct SidebarStyle
@@ -72,7 +74,8 @@ struct SidebarStyle
 	float width { 186.0f };
 	float corner_radius {};
 	float tonal_mix { 0.10f };
-	smath::Vec4 scrim { 0.02f, 0.04f, 0.08f, 0.55f };
+	std::optional<smath::Vec4> fill {};
+	std::optional<smath::Vec4> scrim {};
 };
 
 struct ToastStyle
@@ -87,8 +90,8 @@ struct ToastStyle
 	float fade_in_s { 0.16f };
 	float hold_s { 1.6f };
 	float fade_out_s { 0.22f };
-	smath::Vec4 fill { 0.08f, 0.10f, 0.14f, 0.92f };
-	smath::Vec4 text_color { 1.0f, 1.0f, 1.0f, 1.0f };
+	std::optional<smath::Vec4> fill {};
+	std::optional<smath::Vec4> text_color {};
 };
 
 class Toast

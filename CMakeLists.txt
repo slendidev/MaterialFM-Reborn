@@ -16,12 +16,16 @@ if(NOT EXISTS "${ENGINE_PLATFORM_DIR}/CMakeLists.txt")
 endif()
 include("${ENGINE_PLATFORM_DIR}/CMakeLists.txt")
 
+include(cmake/MCU.cmake)
+mcu_add_target(material-color-utilities)
+
 #set(CMAKE_C_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -pg -g")
 #set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -pg -g")
 
 add_executable(${PROJECT_NAME}
 	src/main.cpp
 	src/Application.cpp
+	src/gui/Theme.cpp
 	src/gui/Animation.cpp
 	src/gui/Components.cpp
 	src/gui/Context.cpp
@@ -63,6 +67,8 @@ endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
 	me-core
+	material-color-utilities
+
 	pspdebug
 	pspdisplay
 	pspge
