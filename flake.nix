@@ -40,7 +40,7 @@
             inherit nativeBuildInputs;
 
             preBuild = ''
-              ./scripts/generate_icon_atlas.sh
+              ${pkgs.bash}/bin/bash ./scripts/generate_icon_atlas.sh
             '';
 
             postInstall = ''
