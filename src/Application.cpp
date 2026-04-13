@@ -139,6 +139,7 @@ auto Application::on_update(float const dt) -> void
 		        .column()
 		        .padding(std::array<float, 4> { 10.0f, 10.0f, 0.0f, 10.0f })
 		        .gap(8.0f)
+		        .flex(1.0f)
 		        .build(),
 		    [&](Gui::Context &ctx) {
 			    ctx.text(Gui::id("title"),
@@ -159,10 +160,7 @@ auto Application::on_update(float const dt) -> void
 			        0xA11CEu,
 			        [&](Gui::Context &memo_ctx) {
 				        memo_ctx.scrollable(Gui::id("library"),
-				            Gui::ScrollOptions::builder()
-				                .height(138.0f)
-				                .padding(4.0f)
-				                .build(),
+				            Gui::ScrollOptions::builder().padding(4.0f).build(),
 				            [&](Gui::Context &scroll) {
 					            scroll.flex(Gui::id("library_list"),
 					                Gui::FlexOptions::builder()
