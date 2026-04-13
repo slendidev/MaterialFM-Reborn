@@ -64,7 +64,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 	pspdisplay
 	pspge
 	pspgum
-	pspgu
+	pspgud
 	pspctrl
 	pspaudio
 	pspaudiolib

@@ -180,8 +180,11 @@ auto apply_scissor(Engine::Rect<> const clip) -> void
 		static_cast<int>(std::floor(std::min(static_cast<float>(GU_SCR_HEIGHT),
 		    clip.position.y() + clip.size.y()))),
 	};
+	auto const width { std::max(0, right - x) };
+	auto const height { std::max(0, bottom - y) };
+
 	sceGuEnable(GU_SCISSOR_TEST);
-	sceGuScissor(x, y, std::max(x, right), std::max(y, bottom));
+	sceGuScissor(x, y, width, height);
 }
 
 auto renderer_push_scissor(Rect<> const rect) -> void
