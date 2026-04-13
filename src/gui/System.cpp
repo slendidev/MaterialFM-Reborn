@@ -557,6 +557,7 @@ auto System::clone_node(Node const &source, Node *const parent) const
 	out->kind = source.kind;
 	out->scope = source.scope;
 	out->key = source.key;
+	out->local_key = source.local_key;
 	out->label = source.label;
 	out->icon_name = source.icon_name;
 	out->text_size = source.text_size;
@@ -764,6 +765,9 @@ auto System::build_render_cache_node(Node const &source, uint16_t const depth)
 	auto const index { static_cast<uint16_t>(m_render_nodes.size()) };
 	m_render_nodes.push_back(RenderNode {
 	    .kind = source.kind,
+	    .scope = source.scope,
+	    .key = source.key,
+	    .local_key = source.local_key,
 	    .rect = source.world_rect,
 	    .text_size = source.text_size,
 	    .text_align_x = source.text_align_x,
@@ -794,7 +798,6 @@ auto System::build_render_cache_node(Node const &source, uint16_t const depth)
 	    .selected_icon_tint = source.selected_icon_tint,
 	    .scrim_color = source.scrim_color,
 	    .depth = depth,
-	    .key = &source.key,
 	    .label = &source.label,
 	    .icon_name = &source.icon_name,
 	    .first_child = INVALID_NODE_INDEX,
@@ -1797,8 +1800,24 @@ auto System::layout_node(Node &node,
 
 	if (node.kind == Kind::Text) {
 		auto const measured { measure_leaf(node) };
+
+		auto text_width { measured.width };
+
+		if (node.fixed_width > 0.0f) {
+			text_width = node.fixed_width;
+		} else if (node.flex_grow > 0.0f || node.flex_shrink > 0.0f) {
+			text_width = std::max(measured.width, width);
+		} else if (node.parent != nullptr) {
+			auto const effective_align {
+				resolve_align_items(node.parent->align_items, node.align_self),
+			};
+			if (effective_align == AlignItems::Stretch) {
+				text_width = std::max(measured.width, width);
+			}
+		}
+
 		node.local_rect.position = smath::Vec2 { x, y };
-		node.local_rect.size = smath::Vec2 { measured.width, measured.height };
+		node.local_rect.size = smath::Vec2 { text_width, measured.height };
 		return node.local_rect.size.y();
 	}
 	if (node.kind == Kind::Icon) {
@@ -2380,7 +2399,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 	}
 
 	auto const &node { m_render_nodes[node_index] };
-	auto const &key { *node.key };
+	auto const key { node.key };
 	auto const &label { *node.label };
 	auto const &icon_name { *node.icon_name };
 	auto node_rect { node.rect };
@@ -2393,14 +2412,29 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 
 	m_stats.rendered_nodes += 1;
 
-	auto const focused_here { focused_key.valid() && focused_key == key };
-	auto const selected_here { m_selected.contains(key) };
+	auto const scope_is_active { [&]() {
+		auto const node_scope { node.scope };
+		if (m_dialog_open) {
+			return node_scope == Scope::Dialog;
+		}
+		if (m_sidebar_open) {
+			return node_scope == Scope::Sidebar;
+		}
+		return node_scope == Scope::Root;
+	}() };
+
+	auto const focused_here { scope_is_active && focused_key.valid()
+		&& focused_key == key };
+	auto const selected_here { scope_is_active && m_selected.contains(key) };
 	auto const pressable_focused {
-		node.kind == Kind::Pressable ? focused_here : parent_pressable_focused,
+		node.kind == Kind::Pressable && scope_is_active
+		    ? focused_here
+		    : parent_pressable_focused,
 	};
 	auto const pressable_selected {
-		node.kind == Kind::Pressable ? selected_here
-		                             : parent_pressable_selected,
+		node.kind == Kind::Pressable && scope_is_active
+		    ? selected_here
+		    : parent_pressable_selected,
 	};
 
 	if (node.kind == Kind::Text) {

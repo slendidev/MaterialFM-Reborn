@@ -230,6 +230,9 @@ private:
 	struct RenderNode
 	{
 		Kind kind { Kind::Root };
+		Scope scope { Scope::Root };
+		Id key {};
+		Id local_key {};
 		Engine::Rect<> rect {};
 		float text_size { 14.0f };
 		TextAlignX text_align_x { TextAlignX::Left };
@@ -260,7 +263,6 @@ private:
 		smath::Vec4 selected_icon_tint {};
 		smath::Vec4 scrim_color {};
 		uint16_t depth {};
-		Id const *key {};
 		std::string const *label {};
 		std::string const *icon_name {};
 		uint16_t first_child { INVALID_NODE_INDEX };
