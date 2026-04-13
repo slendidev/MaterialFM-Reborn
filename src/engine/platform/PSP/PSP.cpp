@@ -40,7 +40,7 @@ struct BatchedColorVertex
 	float z {};
 };
 
-static unsigned int __attribute__((aligned(16))) g_gpu_list[262144];
+static unsigned int __attribute__((aligned(16))) g_gpu_list[0x40000];
 std::vector<Engine::Rect<>> g_clip_stack {};
 Engine::Platform::RendererStats g_renderer_stats {};
 Engine::Texture const *g_bound_texture {};
@@ -359,7 +359,7 @@ constexpr size_t SONG_RING_HIGH_WATERMARK { 24576 };
 constexpr size_t SONG_COMPACT_THRESHOLD_FRAMES { 4096 };
 constexpr float SONG_OUTPUT_GAIN { 0.35f };
 constexpr unsigned int SONG_THREAD_SLEEP_US { 100 };
-constexpr int SONG_THREAD_PRIORITY { 0x21 };
+constexpr int SONG_THREAD_PRIORITY { 0x40 };
 constexpr int SONG_THREAD_STACK { 0x20000 };
 constexpr size_t MP3_STREAM_BUF_SIZE { 16 * 1024 };
 constexpr size_t MP3_PCM_BUF_SIZE { 16 * (1152 / 2) };

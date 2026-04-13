@@ -355,14 +355,10 @@ auto Renderer::shape_line(FontHandle const handle,
 	};
 	auto const cached_it { m_shaped_line_cache.find(key) };
 	if (cached_it != m_shaped_line_cache.end()) {
-		auto const order_it {
-			std::find(m_shaped_line_lru.begin(), m_shaped_line_lru.end(), key),
-		};
-		if (order_it != m_shaped_line_lru.end()) {
-			m_shaped_line_lru.erase(order_it);
-		}
-		m_shaped_line_lru.push_back(key);
-		return cached_it->second;
+		m_shaped_line_lru.splice(m_shaped_line_lru.end(),
+		    m_shaped_line_lru,
+		    cached_it->second.lru_it);
+		return cached_it->second.glyphs;
 	}
 
 	auto *cache { ensure_shape_cache(handle, font) };
@@ -396,17 +392,27 @@ auto Renderer::shape_line(FontHandle const handle,
 		}
 	}
 
-	auto [it, _] {
-		m_shaped_line_cache.emplace(std::move(key), std::move(shaped)),
-	};
-	m_shaped_line_lru.push_back(it->first);
+	m_shaped_line_lru.push_back(std::move(key));
+	auto const lru_it { std::prev(m_shaped_line_lru.end()) };
+	auto [it, _] { m_shaped_line_cache.emplace(*lru_it,
+		Renderer::ShapeCacheEntry {
+		    .glyphs = std::move(shaped),
+		    .lru_it = lru_it,
+		}) };
+	bool inserted_entry_erased {};
 	while (m_shaped_line_cache.size() > SHAPED_LINE_CACHE_MAX
 	    && !m_shaped_line_lru.empty()) {
-		auto const oldest { std::move(m_shaped_line_lru.front()) };
+		auto const oldest { m_shaped_line_lru.front() };
+		if (it != m_shaped_line_cache.end() && oldest == it->first) {
+			inserted_entry_erased = true;
+		}
 		m_shaped_line_lru.pop_front();
 		m_shaped_line_cache.erase(oldest);
 	}
-	return it->second;
+	if (inserted_entry_erased || it == m_shaped_line_cache.end()) {
+		return empty;
+	}
+	return it->second.glyphs;
 }
 
 auto Renderer::destroy_shape_caches() -> void

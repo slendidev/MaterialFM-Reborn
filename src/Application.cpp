@@ -30,6 +30,11 @@ Application::Application()
 	sassert(assets().set_active_font(assets().font_handle("ubuntu"))
 	        == Engine::AssetError::Ok,
 	    "Failed to set active font");
+	m_gui_measure_font_handle = assets().active_font_handle();
+	m_gui.set_text_measure_fn([this](std::string_view const text,
+	                              float const size) {
+		return renderer().measure_text(text, size, m_gui_measure_font_handle);
+	});
 
 	auto const atlas_meta {
 		Gui::load_icon_atlas("assets/Textures/atlas.txt"),
@@ -88,10 +93,6 @@ auto Application::on_update(float const dt) -> void
 	    m_frame_ms_count + 1, static_cast<size_t>(FRAME_TIME_HISTORY_CAPACITY));
 
 	assets().update_audio();
-	m_gui.set_text_measure_fn(
-	    [this](std::string_view const text, float const size) {
-		    return renderer().measure_text(text, size);
-	    });
 	if (is_pressed(Engine::Button::Select)) {
 		m_gui_hud_visible = !m_gui_hud_visible;
 	}
@@ -102,6 +103,10 @@ auto Application::on_update(float const dt) -> void
 			m_gui.set_icon_atlas(GUI_ICON_IMAGE_ID, m_icon_atlas);
 			m_icon_atlas_bound = true;
 		}
+	}
+
+	if (is_pressed(Engine::Button::Triangle)) {
+		request_exit();
 	}
 
 	m_gui.begin_frame(MAIN_WINDOW,
@@ -315,6 +320,8 @@ auto Application::on_update(float const dt) -> void
 
 	renderer().start_frame();
 	defer(renderer().end_frame());
+
+	renderer().clear_background();
 
 	renderer().mode_2d();
 	auto const &frame { m_gui.end_frame(MAIN_WINDOW) };

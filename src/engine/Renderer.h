@@ -2,7 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <deque>
+#include <list>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -136,6 +136,12 @@ private:
 		}
 	};
 
+	struct ShapeCacheEntry
+	{
+		std::vector<ShapedGlyph> glyphs {};
+		std::list<ShapeCacheKey>::iterator lru_it {};
+	};
+
 	auto shape_line(
 	    FontHandle handle, Font const &font, std::string_view text, float size)
 	    -> std::vector<ShapedGlyph> const &;
@@ -154,11 +160,9 @@ private:
 	std::vector<uint16_t> m_batch_indices {};
 	Texture const *m_batch_texture {};
 	std::unordered_map<uint32_t, FontShapeCache> m_font_shape_cache {};
-	std::unordered_map<ShapeCacheKey,
-	    std::vector<ShapedGlyph>,
-	    ShapeCacheKeyHash>
+	std::unordered_map<ShapeCacheKey, ShapeCacheEntry, ShapeCacheKeyHash>
 	    m_shaped_line_cache {};
-	std::deque<ShapeCacheKey> m_shaped_line_lru {};
+	std::list<ShapeCacheKey> m_shaped_line_lru {};
 	AssetManager &m_assets;
 	bool m_frame_started {};
 };

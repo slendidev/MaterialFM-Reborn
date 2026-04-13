@@ -16,6 +16,9 @@ if(NOT EXISTS "${ENGINE_PLATFORM_DIR}/CMakeLists.txt")
 endif()
 include("${ENGINE_PLATFORM_DIR}/CMakeLists.txt")
 
+#set(CMAKE_C_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -pg -g")
+#set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -pg -g")
+
 add_executable(${PROJECT_NAME}
 	src/main.cpp
 	src/Application.cpp
