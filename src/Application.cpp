@@ -94,9 +94,10 @@ auto Application::on_update(float const dt) -> void
 
 	assets().update_audio();
 	if (is_pressed(Engine::Button::Select)) {
-		m_gui_hud_visible = !m_gui_hud_visible;
+		m_gui_hud_visible += 1;
+		m_gui_hud_visible %= 3;
 	}
-	m_gui.set_hud_visible(m_gui_hud_visible);
+	m_gui.set_hud_visible(m_gui_hud_visible == 2);
 	if (m_has_icon_atlas && !m_icon_atlas_bound) {
 		auto const *atlas_tex { assets().texture(m_icon_atlas_handle) };
 		if (atlas_tex != nullptr) {
@@ -400,7 +401,7 @@ auto Application::on_update(float const dt) -> void
 		    command.payload);
 	}
 
-	if (m_gui.get_hud_visible()) {
+	if (m_gui_hud_visible >= 1) {
 		char fps_label[32] {};
 		std::snprintf(fps_label,
 		    sizeof(fps_label),
@@ -433,7 +434,9 @@ auto Application::on_update(float const dt) -> void
 		    },
 		    16.0f,
 		    Engine::Color::GREEN);
+	}
 
+	if (m_gui.get_hud_visible()) {
 		constexpr float HISTOGRAM_X { 332.0f };
 		constexpr float HISTOGRAM_Y { 4.0f };
 		constexpr float HISTOGRAM_W { 144.0f };

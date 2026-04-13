@@ -21,7 +21,7 @@ private:
 	Engine::TextureHandle m_icon_atlas_handle {};
 	bool m_has_icon_atlas {};
 	bool m_icon_atlas_bound {};
-	bool m_gui_hud_visible { true };
+	uint8_t m_gui_hud_visible { 0 };
 	Engine::FontHandle m_gui_measure_font_handle {};
 	static constexpr size_t FRAME_TIME_HISTORY_CAPACITY { 120 };
 	std::array<float, FRAME_TIME_HISTORY_CAPACITY> m_frame_ms_history {};
