@@ -274,12 +274,12 @@ auto is_reverse_direction(FlexDirection const direction) -> bool
 	    || direction == FlexDirection::ColumnReverse;
 }
 
-auto saturate(float const value) -> float
+[[gnu::always_inline]] inline auto saturate(float const value) -> float
 {
 	return std::clamp(value, 0.0f, 1.0f);
 }
 
-auto debug_depth_color(uint16_t const depth) -> smath::Vec4
+inline auto debug_depth_color(uint16_t const depth) -> smath::Vec4
 {
 	auto const t { static_cast<float>(depth % 12u) / 12.0f };
 	auto const r { saturate(std::abs(std::sin((t + 0.00f) * PI * 2.0f))) };
@@ -288,7 +288,7 @@ auto debug_depth_color(uint16_t const depth) -> smath::Vec4
 	return smath::Vec4 { r, g, b, 0.95f };
 }
 
-auto clamp_size(System::MeasuredSize size, Node const &node)
+inline auto clamp_size(System::MeasuredSize size, Node const &node)
     -> System::MeasuredSize
 {
 	if (node.min_width > 0.0f) {
@@ -306,7 +306,7 @@ auto clamp_size(System::MeasuredSize size, Node const &node)
 	return size;
 }
 
-auto spans_overlap(
+[[gnu::always_inline]] inline auto spans_overlap(
     float const a0, float const a1, float const b0, float const b1) -> bool
 {
 	return a1 > b0 && b1 > a0;
@@ -315,52 +315,54 @@ auto spans_overlap(
 
 auto System::measure_leaf(Node const &node) const -> MeasuredSize
 {
-	if (node.fixed_width > 0.0f || node.fixed_height > 0.0f) {
-		return clamp_size(
-		    {
-		        .width = std::max(0.0f, node.fixed_width),
-		        .height = std::max(0.0f, node.fixed_height),
-		    },
-		    node);
-	}
+	MeasuredSize size {};
 
-	if (node.kind == Kind::Text) {
-		float w { 0.0f };
+	switch (node.kind) {
+	case Kind::Text: {
+		float measured_width { 0.0f };
 		if (m_text_measure_fn) {
 			auto const measured { m_text_measure_fn(
 				node.label, node.text_size) };
-			w = measured.x() > 0.0f
+			measured_width = measured.x() > 0.0f
 			    ? std::max(8.0f, measured.x() + 1.5f)
 			    : std::max(8.0f,
 			          node.text_size * 0.56f
 			              * static_cast<float>(node.label.size()));
 		} else {
-			w = std::max(8.0f,
+			measured_width = std::max(8.0f,
 			    node.text_size * 0.56f * static_cast<float>(node.label.size()));
 		}
-		return clamp_size(
-		    {
-		        .width = w,
-		        .height = node.text_size + 6.0f,
-		    },
-		    node);
+
+		size.width = measured_width;
+		size.height = node.text_size + 6.0f;
+		break;
 	}
 
-	if (node.kind == Kind::Icon) {
+	case Kind::Icon: {
 		auto const s { std::max(1.0f, node.icon_size) };
-		return clamp_size({ .width = s, .height = s }, node);
+		size.width = s;
+		size.height = s;
+		break;
 	}
 
-	if (node.kind == Kind::Spacer) {
-		return clamp_size(
-		    {
-		        .width = std::max(0.0f, node.fixed_width),
-		        .height = std::max(0.0f, node.fixed_height),
-		    },
-		    node);
+	case Kind::Spacer: {
+		size.width = std::max(0.0f, node.fixed_width);
+		size.height = std::max(0.0f, node.fixed_height);
+		break;
 	}
 
-	return clamp_size({}, node);
+	default:
+		break;
+	}
+
+	if (node.fixed_width > 0.0f) {
+		size.width = node.fixed_width;
+	}
+	if (node.fixed_height > 0.0f) {
+		size.height = node.fixed_height;
+	}
+
+	return clamp_size(size, node);
 }
 
 auto System::measure_node(Node const &node, float const available_width) const
@@ -889,6 +891,7 @@ auto System::compose(std::function<void(Context &)> const &fn) -> void
 	fn(context);
 	prune_state_store();
 	tick_node_animations(0.0f, false);
+	rebuild_node_index();
 
 	for (auto it { m_reconcile_nodes.begin() };
 	    it != m_reconcile_nodes.end();) {
@@ -1041,23 +1044,31 @@ auto System::find_node_by_key(Id const key) -> Node *
 		return nullptr;
 	}
 
-	std::vector<Node *> stack {};
+	auto it { m_nodes_by_key.find(key) };
+	return it != m_nodes_by_key.end() ? it->second : nullptr;
+}
+
+auto System::rebuild_node_index() -> void
+{
+	m_nodes_by_key.clear();
+
+	std::vector<Node *> stack;
 	stack.push_back(m_root.get());
+
 	while (!stack.empty()) {
 		auto *node { stack.back() };
 		stack.pop_back();
-		if (node != nullptr && node->key == key) {
-			return node;
-		}
-		if (node == nullptr) {
+
+		if (!node) {
 			continue;
 		}
+
+		m_nodes_by_key[node->key] = node;
+
 		for (auto &child : node->children) {
 			stack.push_back(child.get());
 		}
 	}
-
-	return nullptr;
 }
 
 auto System::active_scope() const -> Scope
@@ -1115,7 +1126,7 @@ auto System::sync_focus() -> void
 	}
 
 	auto &scope_key { active_scope_focus_key() };
-	auto had_to_replace_focus = false;
+	auto had_to_replace_focus { false };
 
 	if (!scope_key.valid()) {
 		scope_key = focusables.front()->key;
@@ -1333,14 +1344,14 @@ auto System::handle_input() -> void
 		focused = focusables.front();
 	}
 
-	auto center_of = [](Node const *const node) {
+	auto center_of { [](Node const *const node) {
 		return smath::Vec2 {
 			node->world_rect.position.x() + node->world_rect.size.x() * 0.5f,
 			node->world_rect.position.y() + node->world_rect.size.y() * 0.5f,
 		};
-	};
+	} };
 
-	auto navigate_focus = [&](int const dir_x, int const dir_y) -> Node * {
+	auto navigate_focus { [&](int const dir_x, int const dir_y) -> Node * {
 		if (focused == nullptr) {
 			return nullptr;
 		}
@@ -1538,7 +1549,7 @@ auto System::handle_input() -> void
 			return wrapped_in_beam;
 		}
 		return wrapped_off_beam;
-	};
+	} };
 
 	Node *next_focus {};
 	if (m_input.up_pressed) {
@@ -1652,7 +1663,7 @@ auto System::tick_scroll_animation(float const dt) -> void
 	}
 
 	std::unordered_set<Id, Id::Hash> active_keys {};
-	std::function<void(Node &)> animate_scroll = [&](Node &node) {
+	std::function<void(Node &)> animate_scroll { [&](Node &node) {
 		if (node.kind == Kind::Scrollable) {
 			active_keys.insert(node.key);
 			auto &state { m_scroll_tweens[node.key] };
@@ -1704,7 +1715,7 @@ auto System::tick_scroll_animation(float const dt) -> void
 		for (auto &child : node.children) {
 			animate_scroll(*child);
 		}
-	};
+	} };
 	animate_scroll(*m_root);
 
 	for (auto it { m_scroll_tweens.begin() }; it != m_scroll_tweens.end();) {
@@ -1769,7 +1780,7 @@ auto System::tick_node_animations(float const dt, bool const advance) -> void
 		return;
 	}
 
-	std::function<void(Node &)> apply = [&](Node &node) {
+	std::function<void(Node &)> apply { [&](Node &node) {
 		if (node.animated_width.has_value()) {
 			auto const next_width {
 				resolve_animated_float(*node.animated_width, node.key),
@@ -1794,7 +1805,7 @@ auto System::tick_node_animations(float const dt, bool const advance) -> void
 		for (auto &child : node.children) {
 			apply(*child);
 		}
-	};
+	} };
 	apply(*m_root);
 }
 
@@ -1806,11 +1817,25 @@ auto System::layout_node(Node &node,
 {
 	m_stats.relaid_out_nodes += 1;
 
-	if (node.kind == Kind::Text) {
+	auto clamp_rect_size { [&](float &w, float &h) {
+		if (node.min_width > 0.0f) {
+			w = std::max(w, node.min_width);
+		}
+		if (node.min_height > 0.0f) {
+			h = std::max(h, node.min_height);
+		}
+		if (node.max_width > 0.0f) {
+			w = std::min(w, node.max_width);
+		}
+		if (node.max_height > 0.0f) {
+			h = std::min(h, node.max_height);
+		}
+	} };
+
+	auto layout_text { [&]() -> float {
 		auto const measured { measure_leaf(node) };
 
-		auto text_width { measured.width };
-
+		float text_width { measured.width };
 		if (node.fixed_width > 0.0f) {
 			text_width = node.fixed_width;
 		} else if (node.flex_grow > 0.0f || node.flex_shrink > 0.0f) {
@@ -1824,55 +1849,72 @@ auto System::layout_node(Node &node,
 			}
 		}
 
+		float text_height { measured.height };
+		clamp_rect_size(text_width, text_height);
+
 		node.local_rect.position = smath::Vec2 { x, y };
-		node.local_rect.size = smath::Vec2 { text_width, measured.height };
-		return node.local_rect.size.y();
-	}
-	if (node.kind == Kind::Icon) {
+		node.local_rect.size = smath::Vec2 { text_width, text_height };
+		return text_height;
+	} };
+
+	auto layout_icon { [&]() -> float {
+		float w { node.icon_size };
+		float h { node.icon_size };
+		clamp_rect_size(w, h);
+
 		node.local_rect.position = smath::Vec2 { x, y };
-		node.local_rect.size = smath::Vec2 { node.icon_size, node.icon_size };
-		return node.local_rect.size.y();
-	}
-	if (node.kind == Kind::Memo) {
+		node.local_rect.size = smath::Vec2 { w, h };
+		return h;
+	} };
+
+	auto layout_spacer { [&]() -> float {
+		float w { std::max(0.0f, width) };
+		float h { std::max(0.0f, node.fixed_height) };
+		clamp_rect_size(w, h);
+
+		node.local_rect.position = smath::Vec2 { x, y };
+		node.local_rect.size = smath::Vec2 { w, h };
+		return h;
+	} };
+
+	switch (node.kind) {
+	case Kind::Text:
+		return layout_text();
+	case Kind::Icon:
+		return layout_icon();
+	case Kind::Spacer:
+		return layout_spacer();
+	case Kind::Memo:
 		node.local_rect.position = smath::Vec2 { x, y };
 		node.local_rect.size = smath::Vec2 { width, 0.0f };
-	}
-	if (node.kind == Kind::Spacer) {
-		node.local_rect.position = smath::Vec2 { x, y };
-		node.local_rect.size = smath::Vec2 { width, node.fixed_height };
-		return node.local_rect.size.y();
+		break;
+	case Kind::Scrollable:
+	case Kind::Flex:
+	case Kind::Surface:
+	case Kind::Pressable:
+	case Kind::Layer:
+	case Kind::Root:
+		break;
 	}
 
 	auto const is_flex_like { node.kind == Kind::Flex
 		|| node.kind == Kind::Pressable || node.kind == Kind::Surface
 		|| node.kind == Kind::Layer };
+
 	if (!is_flex_like && node.kind != Kind::Scrollable
 	    && node.kind != Kind::Memo) {
+		float rect_w { width };
+		float rect_h { node.fixed_height };
+		clamp_rect_size(rect_w, rect_h);
+
 		node.local_rect.position = smath::Vec2 { x, y };
-		node.local_rect.size = smath::Vec2 { width, node.fixed_height };
-		return node.local_rect.size.y();
+		node.local_rect.size = smath::Vec2 { rect_w, rect_h };
+		return rect_h;
 	}
 
-	auto rect_width { width };
-	auto rect_height { node.fixed_height > 0.0f ? node.fixed_height
-		                                        : height_constraint };
-
-	if (node.kind != Kind::Layer) {
-		auto const measured { measure_node(node, width) };
-
-		if (node.fixed_width <= 0.0f && node.parent != nullptr) {
-			auto const effective_parent_align {
-				resolve_align_items(node.parent->align_items, node.align_self),
-			};
-			if (effective_parent_align != AlignItems::Stretch) {
-				rect_width = measured.width;
-			}
-		}
-
-		if (rect_height <= 0.0f) {
-			rect_height = measured.height;
-		}
-	}
+	float rect_width { width };
+	float rect_height { node.fixed_height > 0.0f ? node.fixed_height
+		                                         : height_constraint };
 
 	if (node.kind == Kind::Layer) {
 		if (node.layer_presentation == LayerPresentation::Drawer) {
@@ -1888,50 +1930,56 @@ auto System::layout_node(Node &node,
 			rect_width = m_window_rect.size.x();
 			rect_height = m_window_rect.size.y();
 		}
+	} else {
+		if (node.fixed_width > 0.0f) {
+			rect_width = node.fixed_width;
+		}
 	}
 
 	node.local_rect.position = smath::Vec2 { x, y };
-	auto inner_width { std::max(
-		0.0f, rect_width - (node.padding_left + node.padding_right)) };
-	auto const bounded_height { rect_height > 0.0f };
-	auto inner_height {
+
+	float inner_width {
+		std::max(0.0f, rect_width - (node.padding_left + node.padding_right)),
+	};
+	bool const bounded_height { rect_height > 0.0f };
+	float inner_height {
 		bounded_height
 		    ? std::max(
 		          0.0f, rect_height - (node.padding_top + node.padding_bottom))
 		    : 0.0f,
 	};
-	auto const inner_x { node.padding_left };
-	auto const inner_y { node.padding_top };
+	float const inner_x { node.padding_left };
+	float const inner_y { node.padding_top };
 
-	auto const layout_scrollable = [&]() -> float {
-		auto layout_inner_width { inner_width };
+	if (node.kind == Kind::Scrollable) {
+		float layout_inner_width { inner_width };
 		if (node.max_width > 0.0f) {
-			auto const constrained_width { std::max(0.0f,
-				node.max_width - (node.padding_left + node.padding_right)) };
+			auto const constrained_width {
+				std::max(0.0f,
+				    node.max_width - (node.padding_left + node.padding_right)),
+			};
 			if (constrained_width > 0.0f) {
 				layout_inner_width
 				    = std::min(layout_inner_width, constrained_width);
 			}
 		}
 
-		auto const stacks_horizontally {
+		bool const stacks_horizontally {
 			node.scroll_axis == ScrollAxis::Horizontal,
 		};
-		auto const stack_gap {
+		float const stack_gap {
 			stacks_horizontally ? node.column_gap : node.row_gap,
 		};
-		auto stack_cursor_x { inner_x };
-		auto stack_cursor_y { inner_y };
-		auto max_right { inner_x };
-		auto max_bottom { inner_y };
+
+		float stack_cursor_x { inner_x };
+		float stack_cursor_y { inner_y };
+		float max_right { inner_x };
+		float max_bottom { inner_y };
 
 		for (size_t i {}; i < node.children.size(); ++i) {
-			auto &child_ptr { node.children[i] };
-			auto &child { *child_ptr };
+			auto &child { *node.children[i] };
 
-			auto const child_x { stack_cursor_x };
-			auto const child_y { stack_cursor_y };
-			auto const child_height_constraint {
+			float const child_height_constraint {
 				(node.scroll_axis == ScrollAxis::Vertical
 				    || node.scroll_axis == ScrollAxis::Both)
 				    ? 0.0f
@@ -1939,29 +1987,30 @@ auto System::layout_node(Node &node,
 			};
 
 			layout_node(child,
-			    child_x,
-			    child_y,
+			    stack_cursor_x,
+			    stack_cursor_y,
 			    layout_inner_width,
 			    child_height_constraint);
 
-			auto const content_x { child.local_rect.position.x() };
-			auto const content_y { child.local_rect.position.y() };
-			max_right
-			    = std::max(max_right, content_x + child.local_rect.size.x());
-			max_bottom
-			    = std::max(max_bottom, content_y + child.local_rect.size.y());
+			auto const child_right {
+				child.local_rect.position.x() + child.local_rect.size.x(),
+			};
+			auto const child_bottom {
+				child.local_rect.position.y() + child.local_rect.size.y(),
+			};
 
-			auto const has_next { i + 1 < node.children.size() };
-			if (!has_next) {
-				continue;
-			}
+			max_right = std::max(max_right, child_right);
+			max_bottom = std::max(max_bottom, child_bottom);
 
-			if (stacks_horizontally) {
-				stack_cursor_x += child.local_rect.size.x() + stack_gap;
-			} else {
-				stack_cursor_y += child.local_rect.size.y() + stack_gap;
+			if (i + 1 < node.children.size()) {
+				if (stacks_horizontally) {
+					stack_cursor_x += child.local_rect.size.x() + stack_gap;
+				} else {
+					stack_cursor_y += child.local_rect.size.y() + stack_gap;
+				}
 			}
 		}
+
 		node.content_width = std::max(0.0f, max_right - inner_x);
 		node.content_height = std::max(0.0f, max_bottom - inner_y);
 
@@ -1969,18 +2018,27 @@ auto System::layout_node(Node &node,
 			rect_width
 			    = node.content_width + node.padding_left + node.padding_right;
 			rect_width = std::min(rect_width, node.max_width);
+			if (node.min_width > 0.0f) {
+				rect_width = std::max(rect_width, node.min_width);
+			}
 			inner_width = std::max(
 			    0.0f, rect_width - (node.padding_left + node.padding_right));
 		}
+
 		if (rect_height <= 0.0f) {
 			rect_height
 			    = node.content_height + node.padding_top + node.padding_bottom;
 			if (node.max_height > 0.0f) {
 				rect_height = std::min(rect_height, node.max_height);
 			}
+			if (node.min_height > 0.0f) {
+				rect_height = std::max(rect_height, node.min_height);
+			}
 			inner_height = std::max(
 			    0.0f, rect_height - (node.padding_top + node.padding_bottom));
 		}
+
+		clamp_rect_size(rect_width, rect_height);
 
 		auto const max_scroll_y {
 			std::max(0.0f, node.content_height - inner_height),
@@ -1988,6 +2046,7 @@ auto System::layout_node(Node &node,
 		auto const max_scroll_x {
 			std::max(0.0f, node.content_width - inner_width),
 		};
+
 		node.scroll_target_y
 		    = std::clamp(node.scroll_target_y, 0.0f, max_scroll_y);
 		node.scroll_target_x
@@ -1996,11 +2055,7 @@ auto System::layout_node(Node &node,
 		node.scroll_x = std::clamp(node.scroll_x, 0.0f, max_scroll_x);
 
 		node.local_rect.size = smath::Vec2 { rect_width, rect_height };
-		return node.local_rect.size.y();
-	};
-
-	if (node.kind == Kind::Scrollable) {
-		return layout_scrollable();
+		return rect_height;
 	}
 
 	struct ItemLayout
@@ -2009,7 +2064,9 @@ auto System::layout_node(Node &node,
 		float base_main {};
 		float base_cross {};
 		float used_main {};
+		AlignItems resolved_align { AlignItems::Stretch };
 	};
+
 	struct LineLayout
 	{
 		std::vector<ItemLayout> items {};
@@ -2019,127 +2076,181 @@ auto System::layout_node(Node &node,
 
 	auto const is_row { is_row_direction(node.flex_direction) };
 	auto const reverse { is_reverse_direction(node.flex_direction) };
-	auto const gap_main { is_row ? node.column_gap : node.row_gap };
-	auto const gap_cross { is_row ? node.row_gap : node.column_gap };
-	auto const available_main { is_row ? inner_width : inner_height };
+	float const gap_main { is_row ? node.column_gap : node.row_gap };
+	float const gap_cross { is_row ? node.row_gap : node.column_gap };
+	float const available_main { is_row ? inner_width : inner_height };
+	float const available_cross { is_row ? inner_height : inner_width };
+
+	auto resolve_child_basis { [&](Node &child) -> std::pair<float, float> {
+		if (child.kind == Kind::Text) {
+			auto const measured { measure_leaf(child) };
+			float main_size {
+				is_row
+				    ? (child.fixed_width > 0.0f
+				              ? child.fixed_width
+				              : (child.flex_basis >= 0.0f ? child.flex_basis
+				                                          : measured.width))
+				    : (child.fixed_height > 0.0f
+				              ? child.fixed_height
+				              : (child.flex_basis >= 0.0f ? child.flex_basis
+				                                          : measured.height)),
+			};
+			float cross_size { is_row ? measured.height : measured.width };
+			return { std::max(0.0f, main_size), std::max(0.0f, cross_size) };
+		}
+
+		if (child.kind == Kind::Icon) {
+			float main_size {
+				is_row
+				    ? (child.fixed_width > 0.0f
+				              ? child.fixed_width
+				              : (child.flex_basis >= 0.0f ? child.flex_basis
+				                                          : child.icon_size))
+				    : (child.fixed_height > 0.0f
+				              ? child.fixed_height
+				              : (child.flex_basis >= 0.0f ? child.flex_basis
+				                                          : child.icon_size)),
+			};
+			float cross_size { child.icon_size };
+			return { std::max(0.0f, main_size), std::max(0.0f, cross_size) };
+		}
+
+		if (child.kind == Kind::Spacer) {
+			float main_size {
+				is_row ? (child.fixed_width > 0.0f
+				                 ? child.fixed_width
+				                 : (child.flex_basis >= 0.0f ? child.flex_basis
+				                                             : 0.0f))
+				       : (child.fixed_height > 0.0f
+				                 ? child.fixed_height
+				                 : (child.flex_basis >= 0.0f ? child.flex_basis
+				                                             : 0.0f)),
+			};
+			float cross_size {
+				is_row ? std::max(0.0f, child.fixed_height)
+				       : std::max(0.0f, child.fixed_width),
+			};
+			return { std::max(0.0f, main_size), std::max(0.0f, cross_size) };
+		}
+
+		auto const measured { measure_node(child, inner_width) };
+		float main_size {
+			is_row ? (child.fixed_width > 0.0f
+			                 ? child.fixed_width
+			                 : (child.flex_basis >= 0.0f ? child.flex_basis
+			                                             : measured.width))
+			       : (child.fixed_height > 0.0f
+			                 ? child.fixed_height
+			                 : (child.flex_basis >= 0.0f ? child.flex_basis
+			                                             : measured.height)),
+		};
+		float cross_size { is_row ? measured.height : measured.width };
+		return { std::max(0.0f, main_size), std::max(0.0f, cross_size) };
+	} };
 
 	std::vector<LineLayout> lines {};
-	auto measure_and_collect_lines = [&]() {
-		lines.push_back(LineLayout {});
-		for (auto &child_ptr : node.children) {
-			auto &child { *child_ptr };
+	lines.reserve(std::max<size_t>(1, node.children.size()));
 
-			auto const measured { measure_node(child, inner_width) };
-			auto base_main { 0.0f };
-			if (is_row) {
-				base_main = child.fixed_width > 0.0f
-				    ? child.fixed_width
-				    : (child.flex_basis >= 0.0f ? child.flex_basis
-				                                : measured.width);
-			} else {
-				base_main = child.fixed_height > 0.0f
-				    ? child.fixed_height
-				    : (child.flex_basis >= 0.0f ? child.flex_basis
-				                                : measured.height);
-			}
+	lines.push_back(LineLayout {});
+	if (node.flex_wrap == FlexWrap::NoWrap) {
+		lines.back().items.reserve(node.children.size());
+	}
 
-			auto const base_cross { is_row ? measured.height : measured.width };
+	for (auto &child_ptr : node.children) {
+		auto &child { *child_ptr };
+		auto const [base_main, base_cross] { resolve_child_basis(child) };
 
-			auto &line { lines.back() };
-			auto const needed {
-				line.items.empty() ? base_main
-				                   : line.main_used + gap_main + base_main,
-			};
-			if (node.flex_wrap == FlexWrap::Wrap && available_main > 0.0f
-			    && !line.items.empty() && needed > available_main) {
-				lines.push_back(LineLayout {});
-			}
+		auto const needed {
+			lines.back().items.empty()
+			    ? base_main
+			    : (lines.back().main_used + gap_main + base_main),
+		};
 
-			auto &target_line { lines.back() };
-			target_line.items.push_back(ItemLayout {
-			    .node = &child,
-			    .base_main = std::max(0.0f, base_main),
-			    .base_cross = std::max(0.0f, base_cross),
-			    .used_main = std::max(0.0f, base_main),
-			});
-			target_line.main_used += target_line.items.size() == 1
-			    ? std::max(0.0f, base_main)
-			    : gap_main + std::max(0.0f, base_main);
-			target_line.cross_size
-			    = std::max(target_line.cross_size, base_cross);
+		if (node.flex_wrap == FlexWrap::Wrap && available_main > 0.0f
+		    && !lines.back().items.empty() && needed > available_main) {
+			lines.push_back(LineLayout {});
 		}
-	};
-	measure_and_collect_lines();
 
-	auto resolve_line_sizes = [&]() {
-		for (auto &line : lines) {
-			auto grow_sum { 0.0f };
-			auto shrink_sum { 0.0f };
-			for (auto const &item : line.items) {
-				grow_sum += std::max(0.0f, item.node->flex_grow);
-				shrink_sum
-				    += std::max(0.0f, item.node->flex_shrink * item.base_main);
-			}
-			if (available_main > 0.0f) {
-				auto free_main { available_main - line.main_used };
-				if (free_main > 0.0f && grow_sum > 0.0f) {
-					for (auto &item : line.items) {
-						item.used_main = item.base_main
-						    + free_main
-						        * (std::max(0.0f, item.node->flex_grow)
-						            / grow_sum);
-					}
-				} else if (free_main < 0.0f && shrink_sum > 0.0f) {
-					for (auto &item : line.items) {
-						auto const weight {
-							std::max(
-							    0.0f, item.node->flex_shrink * item.base_main)
-							    / shrink_sum,
-						};
-						item.used_main = std::max(
-						    0.0f, item.base_main + free_main * weight);
-					}
+		auto &line { lines.back() };
+		line.items.push_back(ItemLayout {
+		    .node = &child,
+		    .base_main = base_main,
+		    .base_cross = base_cross,
+		    .used_main = base_main,
+		    .resolved_align
+		    = resolve_align_items(node.align_items, child.align_self),
+		});
+		line.main_used
+		    += line.items.size() == 1 ? base_main : gap_main + base_main;
+		line.cross_size = std::max(line.cross_size, base_cross);
+	}
+
+	for (auto &line : lines) {
+		float grow_sum { 0.0f };
+		float shrink_sum { 0.0f };
+
+		for (auto const &item : line.items) {
+			grow_sum += std::max(0.0f, item.node->flex_grow);
+			shrink_sum
+			    += std::max(0.0f, item.node->flex_shrink * item.base_main);
+		}
+
+		if (available_main > 0.0f) {
+			float const free_main { available_main - line.main_used };
+
+			if (free_main > 0.0f && grow_sum > 0.0f) {
+				for (auto &item : line.items) {
+					item.used_main = item.base_main
+					    + free_main
+					        * (std::max(0.0f, item.node->flex_grow) / grow_sum);
+				}
+			} else if (free_main < 0.0f && shrink_sum > 0.0f) {
+				for (auto &item : line.items) {
+					auto const weight {
+						std::max(0.0f, item.node->flex_shrink * item.base_main)
+						    / shrink_sum,
+					};
+					item.used_main
+					    = std::max(0.0f, item.base_main + free_main * weight);
 				}
 			}
-			line.main_used = 0.0f;
-			line.cross_size = 0.0f;
-			for (size_t i { 0 }; i < line.items.size(); ++i) {
-				line.main_used += line.items[i].used_main;
-				if (i + 1 < line.items.size()) {
-					line.main_used += gap_main;
-				}
-				line.cross_size
-				    = std::max(line.cross_size, line.items[i].base_cross);
-			}
-			if (is_row && node.flex_wrap == FlexWrap::NoWrap
-			    && inner_height > 0.0f) {
-				line.cross_size = inner_height;
-			} else if (!is_row && node.flex_wrap == FlexWrap::NoWrap
-			    && inner_width > 0.0f) {
-				line.cross_size = inner_width;
-			}
 		}
-	};
-	resolve_line_sizes();
 
-	auto total_cross { 0.0f };
-	for (size_t i { 0 }; i < lines.size(); ++i) {
+		line.main_used = 0.0f;
+		line.cross_size = 0.0f;
+		for (size_t i {}; i < line.items.size(); ++i) {
+			line.main_used += line.items[i].used_main;
+			if (i + 1 < line.items.size()) {
+				line.main_used += gap_main;
+			}
+			line.cross_size
+			    = std::max(line.cross_size, line.items[i].base_cross);
+		}
+
+		if (is_row && node.flex_wrap == FlexWrap::NoWrap
+		    && inner_height > 0.0f) {
+			line.cross_size = inner_height;
+		} else if (!is_row && node.flex_wrap == FlexWrap::NoWrap
+		    && inner_width > 0.0f) {
+			line.cross_size = inner_width;
+		}
+	}
+
+	float total_cross { 0.0f };
+	for (size_t i {}; i < lines.size(); ++i) {
 		total_cross += lines[i].cross_size;
 		if (i + 1 < lines.size()) {
 			total_cross += gap_cross;
 		}
 	}
-	auto const available_cross { is_row ? inner_height : inner_width };
-	auto cross_offset { 0.0f };
-	auto cross_spacing { gap_cross };
-	auto apply_align_content = [&]() {
-		if (available_cross <= 0.0f || lines.empty()) {
-			return;
-		}
 
-		auto const free_cross {
-			std::max(0.0f, available_cross - total_cross),
-		};
+	float cross_offset { 0.0f };
+	float cross_spacing { gap_cross };
+
+	if (available_cross > 0.0f && !lines.empty()) {
+		float const free_cross { std::max(
+			0.0f, available_cross - total_cross) };
+
 		switch (node.align_content) {
 		case AlignContent::End:
 			cross_offset = free_cross;
@@ -2172,115 +2283,116 @@ auto System::layout_node(Node &node,
 		default:
 			break;
 		}
-	};
-	apply_align_content();
+	}
 
-	auto content_main_max { 0.0f };
-	auto cross_cursor { cross_offset };
-	auto arrange_lines = [&]() {
-		for (auto line_it = lines.begin(); line_it != lines.end(); ++line_it) {
-			auto &line { *line_it };
-			auto main_offset { 0.0f };
-			auto main_spacing { gap_main };
-			if (available_main > 0.0f && !line.items.empty()) {
-				auto const free_main {
-					std::max(0.0f, available_main - line.main_used),
-				};
-				switch (node.justify_content) {
-				case JustifyContent::End:
-					main_offset = free_main;
-					break;
-				case JustifyContent::Center:
-					main_offset = free_main * 0.5f;
-					break;
-				case JustifyContent::SpaceBetween:
-					main_spacing = line.items.size() > 1 ? gap_main
-					        + free_main
-					            / static_cast<float>(line.items.size() - 1)
-					                                     : gap_main;
-					break;
-				case JustifyContent::SpaceAround:
-					main_spacing = gap_main
-					    + free_main / static_cast<float>(line.items.size());
-					main_offset = main_spacing * 0.5f;
-					break;
-				case JustifyContent::SpaceEvenly:
-					main_spacing = gap_main
-					    + free_main / static_cast<float>(line.items.size() + 1);
-					main_offset = main_spacing;
-					break;
-				case JustifyContent::Start:
-				default:
-					break;
-				}
-			}
+	float content_main_max { 0.0f };
+	float cross_cursor { cross_offset };
 
-			auto main_cursor { main_offset };
-			if (reverse) {
-				main_cursor = available_main > 0.0f
-				    ? available_main - main_offset
-				    : 0.0f;
-			}
+	for (size_t line_index {}; line_index < lines.size(); ++line_index) {
+		auto &line { lines[line_index] };
 
-			for (auto &item : line.items) {
-				auto const effective_align {
-					resolve_align_items(
-					    node.align_items, item.node->align_self),
-				};
-				auto cross_size { item.base_cross };
-				if (effective_align == AlignItems::Stretch
-				    && available_cross > 0.0f) {
-					cross_size = line.cross_size;
-				}
+		float main_offset { 0.0f };
+		float main_spacing { gap_main };
 
-				auto cross_pos { cross_cursor };
-				if (effective_align == AlignItems::End) {
-					cross_pos += std::max(0.0f, line.cross_size - cross_size);
-				} else if (effective_align == AlignItems::Center) {
-					cross_pos += std::max(
-					    0.0f, (line.cross_size - cross_size) * 0.5f);
-				}
+		if (available_main > 0.0f && !line.items.empty()) {
+			float const free_main { std::max(
+				0.0f, available_main - line.main_used) };
 
-				auto const item_main {
-					reverse ? (main_cursor - item.used_main) : main_cursor,
-				};
-				auto child_x { inner_x + (is_row ? item_main : cross_pos) };
-				auto child_y { inner_y + (is_row ? cross_pos : item_main) };
-				auto child_w { is_row ? item.used_main : cross_size };
-				auto child_h { is_row ? cross_size : item.used_main };
-				layout_node(*item.node,
-				    child_x,
-				    child_y,
-				    child_w,
-				    child_h > 0.0f ? child_h : 0.0f);
-				if (is_row && child_h > 0.0f) {
-					item.node->local_rect.size.y() = child_h;
-				}
-
-				if (reverse) {
-					main_cursor -= item.used_main + main_spacing;
-				} else {
-					main_cursor += item.used_main + main_spacing;
-				}
-			}
-
-			content_main_max = std::max(content_main_max, line.main_used);
-			cross_cursor += line.cross_size;
-			if (line_it + 1 != lines.end()) {
-				cross_cursor += cross_spacing;
+			switch (node.justify_content) {
+			case JustifyContent::End:
+				main_offset = free_main;
+				break;
+			case JustifyContent::Center:
+				main_offset = free_main * 0.5f;
+				break;
+			case JustifyContent::SpaceBetween:
+				main_spacing = line.items.size() > 1 ? gap_main
+				        + free_main / static_cast<float>(line.items.size() - 1)
+				                                     : gap_main;
+				break;
+			case JustifyContent::SpaceAround:
+				main_spacing = gap_main
+				    + free_main / static_cast<float>(line.items.size());
+				main_offset = main_spacing * 0.5f;
+				break;
+			case JustifyContent::SpaceEvenly:
+				main_spacing = gap_main
+				    + free_main / static_cast<float>(line.items.size() + 1);
+				main_offset = main_spacing;
+				break;
+			case JustifyContent::Start:
+			default:
+				break;
 			}
 		}
+
+		float main_cursor {
+			reverse
+			    ? (available_main > 0.0f ? available_main - main_offset : 0.0f)
+			    : main_offset,
+		};
+
+		for (auto &item : line.items) {
+			float cross_size { item.base_cross };
+			if (item.resolved_align == AlignItems::Stretch
+			    && available_cross > 0.0f) {
+				cross_size = line.cross_size;
+			}
+
+			float cross_pos { cross_cursor };
+			if (item.resolved_align == AlignItems::End) {
+				cross_pos += std::max(0.0f, line.cross_size - cross_size);
+			} else if (item.resolved_align == AlignItems::Center) {
+				cross_pos
+				    += std::max(0.0f, (line.cross_size - cross_size) * 0.5f);
+			}
+
+			float const item_main {
+				reverse ? (main_cursor - item.used_main) : main_cursor,
+			};
+
+			float const child_x { inner_x + (is_row ? item_main : cross_pos) };
+			float const child_y { inner_y + (is_row ? cross_pos : item_main) };
+			float const child_w { is_row ? item.used_main : cross_size };
+			float const child_h { is_row ? cross_size : item.used_main };
+
+			layout_node(*item.node,
+			    child_x,
+			    child_y,
+			    child_w,
+			    child_h > 0.0f ? child_h : 0.0f);
+
+			if (is_row && child_h > 0.0f) {
+				item.node->local_rect.size.y() = child_h;
+			} else if (!is_row && child_w > 0.0f) {
+				item.node->local_rect.size.x() = child_w;
+			}
+
+			if (reverse) {
+				main_cursor -= item.used_main + main_spacing;
+			} else {
+				main_cursor += item.used_main + main_spacing;
+			}
+		}
+
+		content_main_max = std::max(content_main_max, line.main_used);
+		cross_cursor += line.cross_size;
+		if (line_index + 1 < lines.size()) {
+			cross_cursor += cross_spacing;
+		}
+	}
+
+	node.content_width {
+		is_row ? content_main_max + node.padding_left + node.padding_right
+		       : cross_cursor + node.padding_left + node.padding_right,
 	};
-	arrange_lines();
+	node.content_height {
+		is_row ? cross_cursor + node.padding_top + node.padding_bottom
+		       : content_main_max + node.padding_top + node.padding_bottom,
+	};
 
-	node.content_width = is_row
-	    ? content_main_max + node.padding_left + node.padding_right
-	    : cross_cursor + node.padding_left + node.padding_right;
-	node.content_height = is_row
-	    ? cross_cursor + node.padding_top + node.padding_bottom
-	    : content_main_max + node.padding_top + node.padding_bottom;
-
-	if (node.fixed_width <= 0.0f && node.parent != nullptr) {
+	if (node.kind != Kind::Layer && node.fixed_width <= 0.0f
+	    && node.parent != nullptr) {
 		auto const effective_parent_align {
 			resolve_align_items(node.parent->align_items, node.align_self),
 		};
@@ -2293,21 +2405,10 @@ auto System::layout_node(Node &node,
 		rect_height = node.content_height;
 	}
 
-	if (node.min_width > 0.0f) {
-		rect_width = std::max(rect_width, node.min_width);
-	}
-	if (node.min_height > 0.0f) {
-		rect_height = std::max(rect_height, node.min_height);
-	}
-	if (node.max_width > 0.0f) {
-		rect_width = std::min(rect_width, node.max_width);
-	}
-	if (node.max_height > 0.0f) {
-		rect_height = std::min(rect_height, node.max_height);
-	}
+	clamp_rect_size(rect_width, rect_height);
 
 	node.local_rect.size = smath::Vec2 { rect_width, rect_height };
-	return node.local_rect.size.y();
+	return rect_height;
 }
 
 auto System::layout_tree() -> void
@@ -2710,14 +2811,14 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 		return;
 	}
 
-	auto intersects = [](Engine::Rect<> const a, Engine::Rect<> const b) {
+	auto intersects { [](Engine::Rect<> const a, Engine::Rect<> const b) {
 		auto const a_right { a.position.x() + a.size.x() };
 		auto const a_bottom { a.position.y() + a.size.y() };
 		auto const b_right { b.position.x() + b.size.x() };
 		auto const b_bottom { b.position.y() + b.size.y() };
 		return a.position.x() < b_right && a_right > b.position.x()
 		    && a.position.y() < b_bottom && a_bottom > b.position.y();
-	};
+	} };
 
 	std::sort(m_debug_label_candidates.begin(),
 	    m_debug_label_candidates.end(),
@@ -2899,7 +3000,7 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 	auto const focused_key { focused != nullptr ? focused->key : Id {} };
 	if (m_render_root_index != INVALID_NODE_INDEX
 	    && m_render_root_index < m_render_nodes.size()) {
-		auto draw_children_pass = [&](bool const hud_only) {
+		auto draw_children_pass { [&](bool const hud_only) {
 			auto child_index {
 				m_render_nodes[m_render_root_index].first_child
 			};
@@ -2919,7 +3020,7 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 				}
 				child_index = child.next_sibling;
 			}
-		};
+		} };
 
 		draw_children_pass(false);
 		draw_children_pass(true);

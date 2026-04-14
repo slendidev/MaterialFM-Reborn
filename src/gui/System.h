@@ -273,6 +273,7 @@ private:
 		uint16_t next_sibling { INVALID_NODE_INDEX };
 	};
 
+	auto rebuild_node_index() -> void;
 	auto active_scope() const -> Scope;
 	auto collect_reconcile_nodes(std::unique_ptr<Node> node) -> void;
 	auto stash_orphan(std::unique_ptr<Node> node) -> void;
@@ -403,6 +404,7 @@ private:
 	    m_reconcile_nodes {};
 	std::vector<std::unique_ptr<Node>> m_node_pool {};
 	std::vector<RenderNode> m_render_nodes {};
+	std::unordered_map<Id, Node *, Id::Hash> m_nodes_by_key {};
 	struct DebugLabelCandidate
 	{
 		Engine::Rect<> rect {};

@@ -100,93 +100,86 @@ auto append_hard_wrapped_word(std::vector<std::string> &out,
 
 template<typename ShapeFn>
 auto wrap_line_words(
-    std::string_view const line, float const max_width, ShapeFn const &shape_fn)
+    std::string_view line, float max_width, ShapeFn const &shape_fn)
     -> std::vector<std::string>
 {
 	if (line.empty()) {
-		return { std::string {} };
+		return { "" };
 	}
 	if (max_width <= 0.0f) {
 		return { std::string(line) };
 	}
 
-	std::vector<std::string> words {};
-	words.reserve(16);
-	std::string current_word {};
-	for (char const ch : line) {
-		if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
-			if (!current_word.empty()) {
-				words.push_back(current_word);
-				current_word.clear();
-			}
-			continue;
-		}
-		current_word.push_back(ch);
-	}
-	if (!current_word.empty()) {
-		words.push_back(current_word);
-	}
-	if (words.empty()) {
-		return { std::string {} };
-	}
-
-	struct WordWidth
-	{
-		std::string text {};
-		float width {};
+	auto is_space = [](unsigned char c) {
+		return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
+		    || c == '\v';
 	};
 
-	std::vector<WordWidth> words_with_width {};
-	words_with_width.reserve(words.size());
+	auto const space_width = shaped_line_width(" ", shape_fn);
 
-	for (auto const &word : words) {
-		words_with_width.push_back(WordWidth {
-		    .text = word,
-		    .width = shaped_line_width(word, shape_fn),
-		});
-	}
+	static std::vector<std::string> lines;
+	lines.clear();
+	lines.reserve(line.size() / 16 + 1);
 
-	auto const space_width { shaped_line_width(" ", shape_fn) };
+	std::string current_line;
+	current_line.reserve(line.size());
 
-	std::vector<std::string> lines {};
-	lines.reserve(words.size());
-	std::string current_line {};
-	float current_width {};
+	float current_width = 0.0f;
 
-	for (auto const &word : words_with_width) {
+	size_t i = 0;
+	while (i < line.size()) {
+		while (
+		    i < line.size() && is_space(static_cast<unsigned char>(line[i]))) {
+			++i;
+		}
+		if (i >= line.size()) {
+			break;
+		}
+
+		size_t start = i;
+		while (
+		    i < line.size() && !is_space(static_cast<unsigned char>(line[i]))) {
+			++i;
+		}
+
+		std::string_view word = line.substr(start, i - start);
+		float const word_width = shaped_line_width(word, shape_fn);
+
 		if (current_line.empty()) {
-			if (word.width > max_width) {
-				append_hard_wrapped_word(lines, word.text, max_width, shape_fn);
-				continue;
+			if (word_width > max_width) {
+				append_hard_wrapped_word(
+				    lines, std::string(word), max_width, shape_fn);
+			} else {
+				current_line.append(word.data(), word.size());
+				current_width = word_width;
 			}
-			current_line = word.text;
-			current_width = word.width;
 			continue;
 		}
 
-		auto const candidate_width = current_width + space_width + word.width;
+		float const candidate_width = current_width + space_width + word_width;
 		if (candidate_width > max_width) {
 			lines.push_back(current_line);
-			if (word.width > max_width) {
-				append_hard_wrapped_word(lines, word.text, max_width, shape_fn);
-				current_line.clear();
+			current_line.clear();
+
+			if (word_width > max_width) {
+				append_hard_wrapped_word(
+				    lines, std::string(word), max_width, shape_fn);
 				current_width = 0.0f;
 			} else {
-				current_line = word.text;
-				current_width = word.width;
+				current_line.append(word.data(), word.size());
+				current_width = word_width;
 			}
 			continue;
 		}
 
 		current_line.push_back(' ');
-		current_line.append(word.text);
+		current_line.append(word.data(), word.size());
 		current_width = candidate_width;
 	}
 
 	if (!current_line.empty()) {
-		lines.push_back(current_line);
+		lines.push_back(std::move(current_line));
 	}
-
 	if (lines.empty()) {
 		lines.emplace_back();
 	}
@@ -754,7 +747,8 @@ auto Renderer::draw_text(std::string_view const text,
 		}
 	};
 
-	std::vector<std::string> lines {};
+	static std::vector<std::string> lines {};
+	lines.clear();
 
 	if (!wrap) {
 		size_t line_start {};
@@ -794,8 +788,8 @@ auto Renderer::draw_text(std::string_view const text,
 		lines.emplace_back();
 	}
 
-	std::vector<TextLayoutLine> layout_lines {};
-	layout_lines.reserve(lines.size());
+	static std::vector<TextLayoutLine> layout_lines {};
+	layout_lines.clear();
 
 	for (auto const &line : lines) {
 		TextLayoutLine layout_line {};

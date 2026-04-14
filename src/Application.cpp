@@ -593,7 +593,6 @@ auto Application::on_update(float const dt) -> void
 		    Engine::Color::BLACK);
 	}
 
-	std::println("======= DONE MAIN CONTENT, NOW TEST LONG STRING ======");
 	renderer().draw_text("asdfasdf87asdfas8d7f5sadf5456asd4f6as79d",
 	    Engine::Rect<> {
 	        smath::Vec2 { 0.0f, 100.0f },
@@ -601,6 +600,4 @@ auto Application::on_update(float const dt) -> void
 	    },
 	    16.0f,
 	    Engine::Color::RED);
-
-	std::println("---------------- END FRAME BEGIN NEW ------------------");
 }
