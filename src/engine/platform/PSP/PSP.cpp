@@ -344,6 +344,7 @@ auto renderer_stats() -> RendererStats
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <fstream>
 #include <functional>
 #include <mutex>
@@ -573,6 +574,64 @@ auto clamp_i16(float const value) -> short
 	auto const clamped { std::clamp(value, -32768.0f, 32767.0f) };
 	return static_cast<short>(clamped);
 }
+
+template<typename T, size_t Capacity> struct SpscRing
+{
+	static_assert(
+	    (Capacity & (Capacity - 1)) == 0, "Capacity must be a power of two");
+
+	std::array<T, Capacity> data {};
+	std::atomic<uint32_t> write_index { 0 };
+	std::atomic<uint32_t> read_index { 0 };
+
+	auto reset() -> void
+	{
+		read_index.store(0, std::memory_order_relaxed);
+		write_index.store(0, std::memory_order_relaxed);
+	}
+
+	auto size() const -> uint32_t
+	{
+		auto const w { write_index.load(std::memory_order_acquire) };
+		auto const r { read_index.load(std::memory_order_acquire) };
+		return w - r;
+	}
+
+	auto free_space() const -> uint32_t
+	{
+		return static_cast<uint32_t>(Capacity) - size();
+	}
+
+	auto push(T const *src, uint32_t count) -> uint32_t
+	{
+		auto const w { write_index.load(std::memory_order_relaxed) };
+		auto const r { read_index.load(std::memory_order_acquire) };
+		auto const free { static_cast<uint32_t>(Capacity) - (w - r) };
+		auto const to_write { std::min(count, free) };
+
+		for (uint32_t i { 0 }; i < to_write; ++i) {
+			data[(w + i) & (Capacity - 1)] = src[i];
+		}
+
+		write_index.store(w + to_write, std::memory_order_release);
+		return to_write;
+	}
+
+	auto pop(T *dst, uint32_t count) -> uint32_t
+	{
+		auto const r { read_index.load(std::memory_order_relaxed) };
+		auto const w { write_index.load(std::memory_order_acquire) };
+		auto const avail { w - r };
+		auto const to_read { std::min(count, avail) };
+
+		for (uint32_t i { 0 }; i < to_read; ++i) {
+			dst[i] = data[(r + i) & (Capacity - 1)];
+		}
+
+		read_index.store(r + to_read, std::memory_order_release);
+		return to_read;
+	}
+};
 } // namespace
 
 struct AssetManager::Impl
@@ -599,7 +658,8 @@ struct AssetManager::Impl
 
 	struct SoundSlot
 	{
-		Sound *asset {};
+		std::atomic<Sound *> asset { nullptr };
+		std::atomic<uint32_t> generation { 1 };
 		std::string name {};
 	};
 
@@ -622,7 +682,9 @@ struct AssetManager::Impl
 
 	struct SoundVoice
 	{
-		Sound const *sound {};
+		bool active {};
+		uint32_t slot_index { 0xFFFFFFFFu };
+		uint32_t generation {};
 		SoundPlaybackOptions options {};
 		double cursor {};
 	};
@@ -656,8 +718,10 @@ struct AssetManager::Impl
 
 	using TextureMap
 	    = std::unordered_map<std::string, Texture, StringHash, StringEqual>;
-	using SoundMap
-	    = std::unordered_map<std::string, Sound, StringHash, StringEqual>;
+	using SoundMap = std::unordered_map<std::string,
+	    std::unique_ptr<Sound>,
+	    StringHash,
+	    StringEqual>;
 	using SongMap
 	    = std::unordered_map<std::string, Song, StringHash, StringEqual>;
 	using FontMap
@@ -674,14 +738,14 @@ struct AssetManager::Impl
 	NameToHandle song_names {};
 	NameToHandle font_names {};
 	std::vector<TextureSlot> texture_slots {};
-	std::vector<SoundSlot> sound_slots {};
+	std::deque<std::unique_ptr<SoundSlot>> sound_slots {};
 	std::vector<SongSlot> song_slots {};
 	std::vector<FontSlot> font_slots {};
 	FontHandle active_font {};
 	std::atomic<uint32_t> active_font_id { 0xFFFFFFFFu };
 	std::atomic<Font const *> active_font_ptr {};
 
-	std::vector<SoundVoice> sound_voices {};
+	std::array<SoundVoice, MAX_SOUND_VOICES> sound_voices {};
 	std::optional<SongState> song_state {};
 	std::array<AudioCommand, AUDIO_COMMAND_QUEUE_CAPACITY> command_queue {};
 	std::atomic<uint32_t> command_read {};
@@ -692,11 +756,21 @@ struct AssetManager::Impl
 	std::mutex font_mutex {};
 	std::mutex audio_mutex {};
 	std::mutex song_state_mutex {};
-	std::mutex song_ring_mutex {};
-	std::vector<short> song_ring {};
-	size_t song_ring_read_frame {};
-	size_t song_ring_write_frame {};
-	size_t song_ring_filled_frames {};
+
+	struct RetiredSound
+	{
+		std::unique_ptr<Sound> sound {};
+		uint32_t slot_index { 0xFFFFFFFFu };
+		uint32_t generation {};
+	};
+
+	std::vector<RetiredSound> retired_sounds {};
+
+	static constexpr size_t SONG_RING_SAMPLES_CAPACITY {
+		SONG_RING_CAPACITY_FRAMES * AUDIO_OUTPUT_CHANNELS
+	};
+
+	SpscRing<short, SONG_RING_SAMPLES_CAPACITY> song_ring {};
 	std::atomic<bool> song_playing {};
 	std::atomic<bool> song_paused {};
 	std::atomic<float> song_position_seconds {};
@@ -745,7 +819,6 @@ struct AssetManager::Impl
 		}
 
 		song_thread_stop.store(false, std::memory_order_release);
-		song_ring.resize(SONG_RING_CAPACITY_FRAMES * AUDIO_OUTPUT_CHANNELS);
 
 		song_thread_id = sceKernelCreateThread("asset_song_decode",
 		    &Impl::song_thread_entry,
@@ -779,63 +852,43 @@ struct AssetManager::Impl
 		song_thread_id = -1;
 	}
 
-	auto ring_push_frames(short const *samples, size_t const frames) -> void
+	auto ring_push_frames(short const *samples, size_t const frames) -> size_t
 	{
-		std::lock_guard<std::mutex> ring_lock(song_ring_mutex);
-		if (song_ring.empty()) {
-			return;
-		}
-
-		auto const capacity { SONG_RING_CAPACITY_FRAMES };
-		auto const free_frames { capacity - song_ring_filled_frames };
-		auto const to_write { std::min(frames, free_frames) };
-
-		for (size_t i { 0 }; i < to_write; ++i) {
-			auto const dst_frame { (song_ring_write_frame + i) % capacity };
-			auto const dst { dst_frame * AUDIO_OUTPUT_CHANNELS };
-			auto const src { i * AUDIO_OUTPUT_CHANNELS };
-			song_ring[dst] = samples[src];
-			song_ring[dst + 1] = samples[src + 1];
-		}
-
-		song_ring_write_frame = (song_ring_write_frame + to_write) % capacity;
-		song_ring_filled_frames += to_write;
+		auto const sample_count {
+			static_cast<uint32_t>(frames * AUDIO_OUTPUT_CHANNELS),
+		};
+		auto const written { song_ring.push(samples, sample_count) };
+		return static_cast<size_t>(written / AUDIO_OUTPUT_CHANNELS);
 	}
 
 	auto ring_pop_song_frames(
 	    short *out, size_t const max_frames, float const volume) -> size_t
 	{
-		std::lock_guard<std::mutex> ring_lock(song_ring_mutex);
-		auto const to_read { std::min(max_frames, song_ring_filled_frames) };
-		auto const capacity { SONG_RING_CAPACITY_FRAMES };
+		auto const max_samples {
+			static_cast<uint32_t>(max_frames * AUDIO_OUTPUT_CHANNELS),
+		};
 
-		for (size_t i { 0 }; i < to_read; ++i) {
-			auto const src_frame { (song_ring_read_frame + i) % capacity };
-			auto const src { src_frame * AUDIO_OUTPUT_CHANNELS };
-			auto const dst { i * AUDIO_OUTPUT_CHANNELS };
-			out[dst] = clamp_i16(static_cast<float>(song_ring[src]) * volume);
-			out[dst + 1]
-			    = clamp_i16(static_cast<float>(song_ring[src + 1]) * volume);
+		auto const popped_samples { song_ring.pop(out, max_samples) };
+		auto const popped_frames {
+			static_cast<size_t>(popped_samples / AUDIO_OUTPUT_CHANNELS),
+		};
+
+		auto const scaled_samples {
+			popped_frames * static_cast<size_t>(AUDIO_OUTPUT_CHANNELS),
+		};
+		for (size_t i { 0 }; i < scaled_samples; ++i) {
+			out[i] = clamp_i16(static_cast<float>(out[i]) * volume);
 		}
 
-		song_ring_read_frame = (song_ring_read_frame + to_read) % capacity;
-		song_ring_filled_frames -= to_read;
-		return to_read;
+		return popped_frames;
 	}
 
-	auto song_ring_filled() -> size_t
+	auto song_ring_filled() const -> size_t
 	{
-		std::lock_guard<std::mutex> ring_lock(song_ring_mutex);
-		return song_ring_filled_frames;
+		return static_cast<size_t>(song_ring.size() / AUDIO_OUTPUT_CHANNELS);
 	}
 
-	auto clear_song_ring() -> void
-	{
-		std::lock_guard<std::mutex> ring_lock(song_ring_mutex);
-		song_ring_read_frame = 0;
-		song_ring_write_frame = 0;
-		song_ring_filled_frames = 0;
-	}
+	auto clear_song_ring() -> void { song_ring.reset(); }
 
 	auto ensure_audio_started() -> AssetError
 	{
@@ -906,7 +959,30 @@ struct AssetManager::Impl
 		return true;
 	}
 
-	auto process_pending_commands_locked() -> void
+	auto process_pending_commands_locked() -> void { }
+
+	auto stop_voices_for_sound_slot_locked(uint32_t const slot_index) -> void
+	{
+		for (auto &voice : sound_voices) {
+			if (voice.active && voice.slot_index == slot_index) {
+				voice.active = false;
+			}
+		}
+	}
+
+	auto find_free_voice_index_rt() -> int
+	{
+		for (size_t i { 0 }; i < sound_voices.size(); ++i) {
+			if (!sound_voices[i].active) {
+				return static_cast<int>(i);
+			}
+		}
+		return -1;
+	}
+
+	auto steal_voice_index_rt() -> int { return 0; }
+
+	auto process_pending_commands_rt() -> void
 	{
 		auto read { command_read.load(std::memory_order_relaxed) };
 		auto const write { command_write.load(std::memory_order_acquire) };
@@ -914,39 +990,43 @@ struct AssetManager::Impl
 
 		while (read != write && processed < MAX_COMMANDS_PER_CALLBACK) {
 			auto const &cmd { command_queue[read] };
+
 			if (cmd.type == AudioCommand::Type::PlaySound) {
 				if (cmd.handle < sound_slots.size()) {
-					auto const *sound { sound_slots[cmd.handle].asset };
+					auto const generation {
+						sound_slots[cmd.handle]->generation.load(
+						    std::memory_order_acquire),
+					};
+					auto *sound {
+						sound_slots[cmd.handle]->asset.load(
+						    std::memory_order_acquire),
+					};
+
 					if (sound != nullptr) {
-						if (sound_voices.size() >= MAX_SOUND_VOICES) {
-							sound_voices[0] = std::move(sound_voices.back());
-							sound_voices.pop_back();
+						auto voice_index { find_free_voice_index_rt() };
+						if (voice_index < 0) {
+							voice_index = steal_voice_index_rt();
 						}
 
-						SoundVoice voice {
-						    .sound = sound,
-						    .options =
-						        {
-						            .volume = clamp_volume(cmd.volume),
-						            .speed = cmd.speed,
-						        },
-						    .cursor = 0.0,
-						};
-						sound_voices.push_back(std::move(voice));
+						if (voice_index >= 0) {
+							auto &voice {
+								sound_voices[static_cast<size_t>(voice_index)]
+							};
+							voice.active = true;
+							voice.slot_index = cmd.handle;
+							voice.generation = generation;
+							voice.options.volume = clamp_volume(cmd.volume);
+							voice.options.speed = cmd.speed;
+							voice.cursor = 0.0;
+						}
 					}
 				}
 			} else if (cmd.type == AudioCommand::Type::UnloadSound) {
 				if (cmd.handle < sound_slots.size()) {
-					auto const slot { sound_slots[cmd.handle] };
-					if (slot.asset != nullptr) {
-						stop_voices_for_sound_locked(slot.asset);
-						auto it { sounds.find(slot.name) };
-						if (it != sounds.end()) {
-							sounds.erase(it);
+					for (auto &voice : sound_voices) {
+						if (voice.active && voice.slot_index == cmd.handle) {
+							voice.active = false;
 						}
-						sound_names.erase(slot.name);
-						sound_slots[cmd.handle].asset = nullptr;
-						sound_slots[cmd.handle].name.clear();
 					}
 				}
 			}
@@ -957,18 +1037,6 @@ struct AssetManager::Impl
 		}
 
 		command_read.store(read, std::memory_order_release);
-	}
-
-	auto stop_voices_for_sound_locked(Sound const *const sound_ptr) -> void
-	{
-		auto out_it {
-			std::remove_if(sound_voices.begin(),
-			    sound_voices.end(),
-			    [&](SoundVoice const &voice) {
-			        return voice.sound == sound_ptr;
-			    }),
-		};
-		sound_voices.erase(out_it, sound_voices.end());
 	}
 
 	auto stop_song_locked() -> void
@@ -1009,6 +1077,34 @@ struct AssetManager::Impl
 		song_position_seconds.store(0.0f, std::memory_order_release);
 		song_underruns.store(0, std::memory_order_release);
 		clear_song_ring();
+	}
+
+	auto can_reclaim_sound_slot_generation(uint32_t const slot_index,
+	    uint32_t const retired_generation) const -> bool
+	{
+		for (auto const &voice : sound_voices) {
+			if (!voice.active) {
+				continue;
+			}
+			if (voice.slot_index == slot_index
+			    && voice.generation == retired_generation) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	auto reclaim_retired_sounds_locked() -> void
+	{
+		auto out_it {
+			std::remove_if(retired_sounds.begin(),
+			    retired_sounds.end(),
+			    [this](RetiredSound const &retired) {
+			        return can_reclaim_sound_slot_generation(
+			            retired.slot_index, retired.generation);
+			    }),
+		};
+		retired_sounds.erase(out_it, retired_sounds.end());
 	}
 
 	auto decode_more_song_frames_locked(SongState &state) -> int
@@ -1374,11 +1470,26 @@ struct AssetManager::Impl
 		return 0;
 	}
 
-	auto mix_sound_voice_locked(SoundVoice &voice, unsigned int const frames)
+	auto mix_sound_voice_rt(SoundVoice &voice, unsigned int const frames)
 	    -> bool
 	{
-		auto const *sound { voice.sound };
-		if (sound == nullptr) {
+		if (!voice.active) {
+			return true;
+		}
+		if (voice.slot_index >= sound_slots.size()) {
+			return true;
+		}
+
+		auto const slot_generation {
+			sound_slots[voice.slot_index]->generation.load(
+			    std::memory_order_acquire),
+		};
+		auto *sound {
+			sound_slots[voice.slot_index]->asset.load(
+			    std::memory_order_acquire),
+		};
+
+		if (sound == nullptr || slot_generation != voice.generation) {
 			return true;
 		}
 
@@ -1485,27 +1596,26 @@ struct AssetManager::Impl
 
 	auto mix_audio(short *const out, unsigned int const frames) -> void
 	{
-		std::lock_guard<std::mutex> lock(audio_mutex);
-		process_pending_commands_locked();
+		process_pending_commands_rt();
 
 		auto const sample_count {
 			static_cast<size_t>(frames) * AUDIO_OUTPUT_CHANNELS,
 		};
-		if (mix_accum.size() < sample_count) {
-			mix_accum.resize(sample_count);
-		}
+
+		sassert(sample_count <= mix_accum.size(),
+		    "mix_accum too small for callback request");
+
 		std::fill_n(mix_accum.begin(), sample_count, 0.0f);
 
-		for (size_t i { 0 }; i < sound_voices.size();) {
-			auto &voice { sound_voices[i] };
-			auto const finished { mix_sound_voice_locked(voice, frames) };
-			if (finished) {
-				sound_voices[i] = std::move(sound_voices.back());
-				sound_voices.pop_back();
+		for (auto &voice : sound_voices) {
+			if (!voice.active) {
 				continue;
 			}
 
-			++i;
+			auto const finished { mix_sound_voice_rt(voice, frames) };
+			if (finished) {
+				voice.active = false;
+			}
 		}
 
 		for (size_t i { 0 }; i < sample_count; ++i) {
@@ -1519,7 +1629,11 @@ struct AssetManager::Impl
 			std::lock_guard<std::mutex> song_lock(song_state_mutex);
 			stop_song_locked();
 		}
-		sound_voices.clear();
+		for (auto &voice : sound_voices) {
+			voice.active = false;
+		}
+		retired_sounds.clear();
+		sounds.clear();
 		command_read.store(0, std::memory_order_relaxed);
 		command_write.store(0, std::memory_order_relaxed);
 		if (!audio_initialized.load(std::memory_order_acquire)) {
@@ -1536,9 +1650,13 @@ struct AssetManager::Impl
 
 AssetManager::AssetManager() : m_impl(std::make_unique<Impl>())
 {
-	m_impl->sound_voices.reserve(MAX_SOUND_VOICES);
 	m_impl->mix_accum.resize(
 	    static_cast<size_t>(PSP_NUM_AUDIO_SAMPLES * AUDIO_OUTPUT_CHANNELS));
+
+	for (auto &voice : m_impl->sound_voices) {
+		voice.active = false;
+	}
+
 	m_impl->start_song_thread();
 }
 
@@ -1691,25 +1809,32 @@ auto AssetManager::load_sound_from_memory(std::string_view const name,
 	}
 
 	auto const sample_total { static_cast<size_t>(sample_count * channels) };
-	Sound sound {
-		.channels = channels,
-		.sample_rate = sample_rate,
-	};
-	sound.samples.assign(
+	auto sound_ptr { std::make_unique<Sound>() };
+	sound_ptr->channels = channels;
+	sound_ptr->sample_rate = sample_rate;
+	sound_ptr->samples.assign(
 	    output, output + static_cast<std::ptrdiff_t>(sample_total));
 	std::free(output);
 
+	auto raw { sound_ptr.get() };
 	auto [it, inserted] {
-		m_impl->sounds.emplace(std::string(name), std::move(sound)),
+		m_impl->sounds.emplace(std::string(name), std::move(sound_ptr)),
 	};
 	if (!inserted) {
 		return AssetError::AlreadyExists;
 	}
+
 	auto const handle { static_cast<uint32_t>(m_impl->sound_slots.size()) };
 	m_impl->sound_names.emplace(std::string(name), handle);
-	m_impl->sound_slots.push_back(
-	    Impl::SoundSlot { &it->second, std::string(name) });
+
+	auto new_slot { std::make_unique<Impl::SoundSlot>() };
+	new_slot->name = std::string(name);
+	new_slot->asset.store(raw, std::memory_order_release);
+	new_slot->generation.store(1, std::memory_order_release);
+
+	m_impl->sound_slots.push_back(std::move(new_slot));
 	out_handle.id = handle;
+	m_impl->reclaim_retired_sounds_locked();
 	return AssetError::Ok;
 }
 
@@ -1938,22 +2063,45 @@ auto AssetManager::unload_sound(SoundHandle const handle) -> AssetError
 		        Impl::AudioCommand::Type::UnloadSound, handle.id)) {
 			return AssetError::AudioChannelUnavailable;
 		}
-		return AssetError::Ok;
 	}
 
 	std::lock_guard<std::mutex> lock(m_impl->audio_mutex);
+
 	if (handle.id >= m_impl->sound_slots.size()) {
 		return AssetError::NotFound;
 	}
-	auto const slot { m_impl->sound_slots[handle.id] };
-	if (slot.asset == nullptr) {
+
+	auto *current { m_impl->sound_slots[handle.id]->asset.load(
+		std::memory_order_acquire) };
+	if (current == nullptr) {
 		return AssetError::NotFound;
 	}
-	m_impl->stop_voices_for_sound_locked(slot.asset);
-	m_impl->sounds.erase(slot.name);
-	m_impl->sound_names.erase(slot.name);
-	m_impl->sound_slots[handle.id].asset = nullptr;
-	m_impl->sound_slots[handle.id].name.clear();
+
+	m_impl->sound_slots[handle.id]->asset.store(
+	    nullptr, std::memory_order_release);
+	m_impl->sound_slots[handle.id]->generation.fetch_add(
+	    1u, std::memory_order_acq_rel);
+
+	auto const slot_name { m_impl->sound_slots[handle.id]->name };
+	auto it { m_impl->sounds.find(slot_name) };
+	if (it != m_impl->sounds.end()) {
+		auto const retired_gen {
+			m_impl->sound_slots[handle.id]->generation.load(
+			    std::memory_order_acquire),
+		};
+		Impl::RetiredSound retired {};
+		retired.sound = std::move(it->second);
+		retired.slot_index = handle.id;
+		retired.generation = retired_gen - 1;
+		m_impl->retired_sounds.push_back(std::move(retired));
+		m_impl->sounds.erase(it);
+	}
+
+	m_impl->sound_names.erase(slot_name);
+	m_impl->sound_slots[handle.id]->name.clear();
+
+	m_impl->reclaim_retired_sounds_locked();
+
 	return AssetError::Ok;
 }
 
@@ -2040,14 +2188,11 @@ auto AssetManager::texture(TextureHandle const handle) const -> Texture const *
 
 auto AssetManager::sound(SoundHandle const handle) const -> Sound const *
 {
-	if (handle.id == 0xFFFFFFFFu) {
+	if (handle.id == 0xFFFFFFFFu || handle.id >= m_impl->sound_slots.size()) {
 		return nullptr;
 	}
-	std::lock_guard<std::mutex> lock(m_impl->audio_mutex);
-	if (handle.id >= m_impl->sound_slots.size()) {
-		return nullptr;
-	}
-	return m_impl->sound_slots[handle.id].asset;
+	return m_impl->sound_slots[handle.id]->asset.load(
+	    std::memory_order_acquire);
 }
 
 auto AssetManager::song(SongHandle const handle) const -> Song const *

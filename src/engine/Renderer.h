@@ -9,11 +9,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include <stb_truetype.h>
+
 #include <smath.hpp>
 
 #include "engine/AssetManager.h"
 #include "engine/Colors.h"
-#include "engine/Common.h"
 #include "engine/Math.h"
 #include "engine/platform/Platform.h"
 
@@ -109,6 +110,9 @@ private:
 		void *font {};
 		uint8_t const *font_data {};
 		size_t font_size {};
+		stbtt_fontinfo stb_info {};
+		bool stb_ready { false };
+		float atlas_scale { 0.0f };
 	};
 
 	struct ShapeCacheKey
@@ -143,12 +147,23 @@ private:
 		std::list<ShapeCacheKey>::iterator lru_it {};
 	};
 
+	struct TextLayoutLine
+	{
+		std::string text {};
+		std::vector<ShapedGlyph> glyphs {};
+		float width {};
+	};
+
 	auto shape_line(
 	    FontHandle handle, Font const &font, std::string_view text, float size)
 	    -> std::vector<ShapedGlyph> const &;
-	auto ensure_shape_cache(FontHandle handle, Font const &font)
-	    -> FontShapeCache *;
+	auto ensure_shape(FontHandle handle, Font const &font) -> FontShapeCache *;
 	auto destroy_shape_caches() -> void;
+	static auto ensure_stb_font_static(FontShapeCache &cache, Font const &font)
+	    -> bool;
+	static auto ensure_glyph(
+	    Font const &font, FontShapeCache &shape_cache, uint32_t const glyph_id)
+	    -> Font::Glyph const *;
 
 	auto ensure_batch_capacity(size_t vertex_count, size_t index_count) -> void;
 	auto push_quad(Texture const *texture,

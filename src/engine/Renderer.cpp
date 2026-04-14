@@ -57,11 +57,11 @@ auto shaped_line_width(std::string_view const text, ShapeFn const &shape_fn)
 	return width;
 }
 
-template<typename WidthFn>
+template<typename ShapeFn>
 auto append_hard_wrapped_word(std::vector<std::string> &out,
     std::string_view const word,
     float const max_width,
-    WidthFn const &width_fn) -> void
+    ShapeFn const &shape_fn) -> void
 {
 	if (word.empty()) {
 		return;
@@ -71,19 +71,30 @@ auto append_hard_wrapped_word(std::vector<std::string> &out,
 		return;
 	}
 
-	std::string current {};
-	current.reserve(word.size());
-	for (char const ch : word) {
-		current.push_back(ch);
-		auto const candidate_width { width_fn(current) };
-		if (current.size() > 1 && candidate_width > max_width) {
-			current.pop_back();
-			out.push_back(current);
-			current.assign(1, ch);
-		}
+	auto const &glyphs { shape_fn(word) };
+	if (glyphs.empty()) {
+		out.emplace_back(word);
+		return;
 	}
-	if (!current.empty()) {
-		out.push_back(current);
+
+	size_t segment_start = 0;
+	size_t segment_len = 0;
+	float segment_width = 0.0f;
+
+	for (size_t i = 0; i < glyphs.size() && i < word.size(); ++i) {
+		float const next_width = segment_width + glyphs[i].x_advance;
+		if (segment_len > 0 && next_width > max_width) {
+			out.emplace_back(word.substr(segment_start, segment_len));
+			segment_start += segment_len;
+			segment_len = 0;
+			segment_width = 0.0f;
+		}
+		segment_len += 1;
+		segment_width += glyphs[i].x_advance;
+	}
+
+	if (segment_len > 0) {
+		out.emplace_back(word.substr(segment_start, segment_len));
 	}
 }
 
@@ -119,54 +130,67 @@ auto wrap_line_words(
 		return { std::string {} };
 	}
 
-	std::unordered_map<std::string, float> width_cache {};
-	auto const width_of = [&](std::string_view const value) {
-		auto const key { std::string(value) };
-		auto it { width_cache.find(key) };
-		if (it != width_cache.end()) {
-			return it->second;
-		}
-		auto const width { shaped_line_width(value, shape_fn) };
-		width_cache.emplace(key, width);
-		return width;
+	struct WordWidth
+	{
+		std::string text {};
+		float width {};
 	};
+
+	std::vector<WordWidth> words_with_width {};
+	words_with_width.reserve(words.size());
+
+	for (auto const &word : words) {
+		words_with_width.push_back(WordWidth {
+		    .text = word,
+		    .width = shaped_line_width(word, shape_fn),
+		});
+	}
+
+	auto const space_width { shaped_line_width(" ", shape_fn) };
 
 	std::vector<std::string> lines {};
 	lines.reserve(words.size());
 	std::string current_line {};
-	for (auto const &word : words) {
+	float current_width {};
+
+	for (auto const &word : words_with_width) {
 		if (current_line.empty()) {
-			auto const word_width { width_of(word) };
-			if (word_width > max_width) {
-				append_hard_wrapped_word(lines, word, max_width, width_of);
+			if (word.width > max_width) {
+				append_hard_wrapped_word(lines, word.text, max_width, shape_fn);
 				continue;
 			}
-			current_line = word;
+			current_line = word.text;
+			current_width = word.width;
 			continue;
 		}
 
-		auto const old_size { current_line.size() };
-		current_line.push_back(' ');
-		current_line.append(word);
-		auto const candidate_width { width_of(current_line) };
+		auto const candidate_width = current_width + space_width + word.width;
 		if (candidate_width > max_width) {
-			current_line.resize(old_size);
 			lines.push_back(current_line);
-			if (width_of(word) > max_width) {
-				append_hard_wrapped_word(lines, word, max_width, width_of);
+			if (word.width > max_width) {
+				append_hard_wrapped_word(lines, word.text, max_width, shape_fn);
 				current_line.clear();
+				current_width = 0.0f;
 			} else {
-				current_line = word;
+				current_line = word.text;
+				current_width = word.width;
 			}
 			continue;
 		}
+
+		current_line.push_back(' ');
+		current_line.append(word.text);
+		current_width = candidate_width;
 	}
+
 	if (!current_line.empty()) {
 		lines.push_back(current_line);
 	}
+
 	if (lines.empty()) {
 		lines.emplace_back();
 	}
+
 	return lines;
 }
 
@@ -177,7 +201,10 @@ auto float_bits(float const value) -> uint32_t
 	return bits;
 }
 
-auto ensure_glyph(Font const &font, uint32_t const glyph_id)
+} // namespace
+
+auto Renderer::ensure_glyph(
+    Font const &font, FontShapeCache &shape_cache, uint32_t const glyph_id)
     -> Font::Glyph const *
 {
 	auto const existing { font.glyphs.find(glyph_id) };
@@ -185,10 +212,10 @@ auto ensure_glyph(Font const &font, uint32_t const glyph_id)
 		return &existing->second;
 	}
 
-	stbtt_fontinfo info {};
-	if (stbtt_InitFont(&info, font.ttf_data.data(), 0) == 0) {
+	if (!ensure_stb_font_static(shape_cache, font)) {
 		return nullptr;
 	}
+	auto const *info { &shape_cache.stb_info };
 
 	if (font.atlas.width <= 0 || font.atlas.height <= 0) {
 		font.atlas.width = FONT_ATLAS_DIMENSION;
@@ -203,14 +230,13 @@ auto ensure_glyph(Font const &font, uint32_t const glyph_id)
 		font.atlas_row_height = 0;
 	}
 
-	auto const scale { stbtt_ScaleForPixelHeight(
-		&info, font.atlas_base_size_px) };
+	auto const scale { shape_cache.atlas_scale };
 	int x0 {};
 	int y0 {};
 	int x1 {};
 	int y1 {};
 	stbtt_GetGlyphBitmapBox(
-	    &info, static_cast<int>(glyph_id), scale, scale, &x0, &y0, &x1, &y1);
+	    info, static_cast<int>(glyph_id), scale, scale, &x0, &y0, &x1, &y1);
 	auto const width { std::max(0, x1 - x0) };
 	auto const height { std::max(0, y1 - y0) };
 
@@ -246,7 +272,7 @@ auto ensure_glyph(Font const &font, uint32_t const glyph_id)
 	font.atlas_row_height = std::max(font.atlas_row_height, height);
 
 	std::vector<uint8_t> bitmap(static_cast<size_t>(width * height));
-	stbtt_MakeGlyphBitmap(&info,
+	stbtt_MakeGlyphBitmap(info,
 	    bitmap.data(),
 	    width,
 	    height,
@@ -285,7 +311,6 @@ auto ensure_glyph(Font const &font, uint32_t const glyph_id)
 		}) };
 	return &it->second;
 }
-} // namespace
 
 Renderer::Renderer(AssetManager &assets) : m_assets(assets)
 {
@@ -304,7 +329,7 @@ Renderer::~Renderer()
 	Platform::renderer_destroy();
 }
 
-auto Renderer::ensure_shape_cache(FontHandle const handle, Font const &font)
+auto Renderer::ensure_shape(FontHandle const handle, Font const &font)
     -> FontShapeCache *
 {
 	if (handle.id == 0xFFFFFFFFu || font.ttf_data.empty()) {
@@ -369,7 +394,7 @@ auto Renderer::shape_line(FontHandle const handle,
 		return cached_it->second.glyphs;
 	}
 
-	auto *cache { ensure_shape_cache(handle, font) };
+	auto *cache { ensure_shape(handle, font) };
 	if (cache == nullptr || cache->context == nullptr) {
 		return empty;
 	}
@@ -434,6 +459,24 @@ auto Renderer::destroy_shape_caches() -> void
 	m_font_shape_cache.clear();
 	m_shaped_line_cache.clear();
 	m_shaped_line_lru.clear();
+}
+
+auto Renderer::ensure_stb_font_static(FontShapeCache &cache, Font const &font)
+    -> bool
+{
+	if (cache.stb_ready) {
+		return true;
+	}
+	if (font.ttf_data.empty()) {
+		return false;
+	}
+	if (stbtt_InitFont(&cache.stb_info, font.ttf_data.data(), 0) == 0) {
+		return false;
+	}
+	cache.atlas_scale
+	    = stbtt_ScaleForPixelHeight(&cache.stb_info, font.atlas_base_size_px);
+	cache.stb_ready = true;
+	return true;
 }
 
 auto Renderer::start_frame() -> void
@@ -690,6 +733,11 @@ auto Renderer::draw_text(std::string_view const text,
 		return;
 	}
 
+	auto *font_shape_cache { ensure_shape(handle, *font) };
+	if (font_shape_cache == nullptr) {
+		return;
+	}
+
 	auto const lh { line_height(*font, size) };
 	if (lh <= 0.0f) {
 		return;
@@ -746,17 +794,21 @@ auto Renderer::draw_text(std::string_view const text,
 		lines.emplace_back();
 	}
 
-	// measure widths
-	std::vector<float> line_widths {};
-	line_widths.reserve(lines.size());
+	std::vector<TextLayoutLine> layout_lines {};
+	layout_lines.reserve(lines.size());
 
 	for (auto const &line : lines) {
-		auto const &shaped { shape_fn(line) };
+		TextLayoutLine layout_line {};
+		layout_line.text = line;
+		layout_line.glyphs = shape_line(handle, *font, layout_line.text, size);
+
 		float width {};
-		for (auto const &g : shaped) {
+		for (auto const &g : layout_line.glyphs) {
 			width += g.x_advance;
 		}
-		line_widths.push_back(width);
+		layout_line.width = width;
+
+		layout_lines.push_back(std::move(layout_line));
 	}
 
 	auto const total_height { (asc_px + desc_px)
@@ -769,10 +821,10 @@ auto Renderer::draw_text(std::string_view const text,
 		start_y += box.size.y() - total_height;
 	}
 
-	for (size_t i {}; i < lines.size(); ++i) {
-		auto const &line { lines[i] };
-		auto const &shaped { shape_fn(line) };
-		auto const line_width { line_widths[i] };
+	for (size_t i {}; i < layout_lines.size(); ++i) {
+		auto const &layout_line { layout_lines[i] };
+		auto const &shaped { layout_line.glyphs };
+		auto const line_width { layout_line.width };
 
 		auto pen_x { box.position.x() };
 		if (align_x == TextAlignX::Center) {
@@ -784,7 +836,8 @@ auto Renderer::draw_text(std::string_view const text,
 		auto pen_y { start_y + asc_px + static_cast<float>(i) * lh };
 
 		for (auto const &glyph : shaped) {
-			auto const *cached { ensure_glyph(*font, glyph.glyph_id) };
+			auto const *cached { ensure_glyph(
+				*font, *font_shape_cache, glyph.glyph_id) };
 			if (cached && cached->u1 > cached->u0 && cached->v1 > cached->v0) {
 				auto const x { pen_x + glyph.x_offset
 					+ static_cast<float>(cached->x0) * atlas_scale };
