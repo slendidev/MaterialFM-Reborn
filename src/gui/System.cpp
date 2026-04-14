@@ -2744,7 +2744,7 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 			}
 		}
 
-		auto label { candidate.key.short_label() };
+		std::string label { candidate.key.short_label() };
 		if (label.empty()) {
 			continue;
 		}

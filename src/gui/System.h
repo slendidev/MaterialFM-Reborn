@@ -78,7 +78,7 @@ struct DrawCommand
 	};
 	struct Text
 	{
-		std::string_view value {};
+		std::string value {};
 		Engine::Rect<> box {};
 		float size { 16.0f };
 		smath::Vec4 color {};
