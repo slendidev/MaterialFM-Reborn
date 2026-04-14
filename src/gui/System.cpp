@@ -184,6 +184,22 @@ auto draw_rounded_fill(std::vector<DrawCommand> &draw_list,
 		return;
 	}
 
+	auto quarter_circle_segments { [](float const r) -> int {
+		if (r <= 1.0f) {
+			return 1;
+		}
+
+		auto constexpr pixels_per_segment { 3.0f };
+		auto const arc_length { 0.5f * PI * r };
+		auto const segments {
+			static_cast<int>(std::ceil(arc_length / pixels_per_segment)),
+		};
+
+		return std::clamp(segments, 1, 16);
+	} };
+
+	auto const segments { quarter_circle_segments(radius) };
+
 	draw_list.push_back(DrawCommand {
 	    .payload = DrawCommand::Rect {
 	        .rect = Engine::Rect<> {
@@ -193,20 +209,12 @@ auto draw_rounded_fill(std::vector<DrawCommand> &draw_list,
 	        .color = color,
 	    },
 	});
+
 	draw_list.push_back(DrawCommand {
 	    .payload = DrawCommand::Rect {
 	        .rect = Engine::Rect<> {
 	            .position = rect.position + smath::Vec2 { 0.0f, r },
-	            .size = smath::Vec2 { r, rect.size.y() - 2.0f * r },
-	        },
-	        .color = color,
-	    },
-	});
-	draw_list.push_back(DrawCommand {
-	    .payload = DrawCommand::Rect {
-	        .rect = Engine::Rect<> {
-	            .position = rect.position + smath::Vec2 { rect.size.x() - r, r },
-	            .size = smath::Vec2 { r, rect.size.y() - 2.0f * r },
+	            .size = smath::Vec2 { rect.size.x(), rect.size.y() - 2.0f * r },
 	        },
 	        .color = color,
 	    },
@@ -218,7 +226,7 @@ auto draw_rounded_fill(std::vector<DrawCommand> &draw_list,
 	        .start_radians = PI,
 	        .end_radians = PI * 1.5f,
 	        .color = color,
-	        .segments = 8,
+	        .segments = segments,
 	    },
 	});
 	draw_list.push_back(DrawCommand {
@@ -228,7 +236,7 @@ auto draw_rounded_fill(std::vector<DrawCommand> &draw_list,
 	        .start_radians = PI * 1.5f,
 	        .end_radians = PI * 2.0f,
 	        .color = color,
-	        .segments = 8,
+	        .segments = segments,
 	    },
 	});
 	draw_list.push_back(DrawCommand {
@@ -238,7 +246,7 @@ auto draw_rounded_fill(std::vector<DrawCommand> &draw_list,
 	        .start_radians = PI * 0.5f,
 	        .end_radians = PI,
 	        .color = color,
-	        .segments = 8,
+	        .segments = segments,
 	    },
 	});
 	draw_list.push_back(DrawCommand {
@@ -249,7 +257,7 @@ auto draw_rounded_fill(std::vector<DrawCommand> &draw_list,
 	        .start_radians = 0.0f,
 	        .end_radians = PI * 0.5f,
 	        .color = color,
-	        .segments = 8,
+	        .segments = segments,
 	    },
 	});
 }
