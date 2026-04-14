@@ -84,6 +84,7 @@ struct DrawCommand
 		smath::Vec4 color {};
 		TextAlignX align_x { TextAlignX::Left };
 		TextAlignY align_y { TextAlignY::Top };
+		bool wrap { true };
 	};
 	struct Image
 	{
@@ -203,9 +204,13 @@ public:
 		return set_state_if_changed<T>(key, std::move(next));
 	}
 	auto window_rect() const -> Engine::Rect<> const & { return m_window_rect; }
+	auto dump_tree_string(WindowHandle handle) const
+	    -> std::optional<std::string>;
 	auto dump_tree_stdout(WindowHandle handle) const -> void;
 	auto dump_tree_file(WindowHandle handle, std::string_view path) const
 	    -> bool;
+	auto dump_command_list_string(WindowHandle handle) const
+	    -> std::optional<std::string>;
 	auto dump_command_list_stdout(WindowHandle handle) const -> void;
 	auto dump_command_list_file(
 	    WindowHandle handle, std::string_view path) const -> bool;

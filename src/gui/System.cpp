@@ -4,10 +4,11 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <format>
 #include <fstream>
 #include <limits>
 #include <optional>
-#include <sstream>
+#include <print>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
@@ -1620,7 +1621,14 @@ auto System::tick_sidebar_animation(float const dt) -> void
 {
 	auto const before { m_sidebar_progress };
 	m_sidebar_tween.tick(dt);
-	m_sidebar_progress = m_sidebar_tween.value();
+	auto const new_value { m_sidebar_tween.value() };
+	if (new_value < 0.001f) {
+		m_sidebar_progress = 0.0f;
+	} else if (new_value > 0.999f) {
+		m_sidebar_progress = 1.0f;
+	} else {
+		m_sidebar_progress = new_value;
+	}
 	if (!approx_equal(m_sidebar_progress, before)) {
 		m_world_dirty = true;
 		m_visual_dirty = true;
@@ -2913,10 +2921,10 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 	}
 
 	if (m_hud_visible) {
-		char hud_line[128] {};
-		std::snprintf(hud_line,
-		    sizeof(hud_line),
-		    "rc:%d r:%d s:%d d:%d m:%d/%d ly:%d rn:%d cl:%d pl:%zu",
+		std::string hud_line {};
+		hud_line.reserve(128);
+		std::format_to(std::back_inserter(hud_line),
+		    "rc:{} r:{} s:{} d:{} m:{}/{} ly:{} rn:{} cl:{} pl:{}",
 		    m_stats.recomposed_scopes,
 		    m_stats.recomposed_root,
 		    m_stats.recomposed_sidebar,
@@ -2928,22 +2936,26 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 		    m_stats.culled_nodes,
 		    m_node_pool.size());
 		m_last_output.draw_list.push_back(DrawCommand {
-		    .payload = DrawCommand::Text {
-		        .value = hud_line,
-		        .box = Engine::Rect<> {
-		            .position = smath::Vec2 { m_window_rect.position.x() + 4.0f,
-		                m_window_rect.position.y() + m_window_rect.size.y() - 20.0f },
-		            .size = smath::Vec2 {
-		                std::max(0.0f, m_window_rect.size.x() - 8.0f),
-		                18.0f,
-		            },
-		        },
-		        .size = 16.0f,
-		        .color = m_theme.on_surface_variant,
-		        .align_x = TextAlignX::Left,
-		        .align_y = TextAlignY::Top,
-		    },
-		});
+		      .payload = DrawCommand::Text {
+		          .value = std::move(hud_line),
+		          .box = Engine::Rect<> {
+		              .position = smath::Vec2 {
+		  	        m_window_rect.position.x() + 4.0f,
+		                  m_window_rect.position.y() + m_window_rect.size.y()
+		                  - 20.0f,
+		  	    },
+		              .size = smath::Vec2 {
+		                  std::max(0.0f, m_window_rect.size.x() - 8.0f),
+		                  18.0f,
+		              },
+		          },
+		          .size = 16.0f,
+		          .color = m_theme.on_surface_variant,
+		          .align_x = TextAlignX::Left,
+		          .align_y = TextAlignY::Top,
+			 .wrap = false,
+		      },
+		  });
 	}
 
 	m_visual_dirty = false;
@@ -2973,236 +2985,139 @@ auto System::dump_tree_line(
 		kind_index < std::size(kind_names) ? kind_names[kind_index]
 		                                   : std::string_view { "Unknown" },
 	};
-	char line[256] {};
-	std::snprintf(line,
-	    sizeof(line),
-	    "%.*s local_rect=(%.1f,%.1f %.1fx%.1f) rc=%lu sk=%lu key=%08lx\n",
-	    static_cast<int>(kind_name.size()),
-	    kind_name.data(),
-	    static_cast<double>(node.local_rect.position.x()),
-	    static_cast<double>(node.local_rect.position.y()),
-	    static_cast<double>(node.local_rect.size.x()),
-	    static_cast<double>(node.local_rect.size.y()),
-	    static_cast<unsigned long>(node.recompose_count),
-	    static_cast<unsigned long>(node.skip_count),
-	    static_cast<unsigned long>(node.key.value));
-	out += line;
+	std::format_to(std::back_inserter(out),
+	    "{} local_rect=({}, {}) rc={} sk={} key={}\n",
+	    kind_name,
+	    node.local_rect.position,
+	    node.local_rect.size,
+	    node.recompose_count,
+	    node.skip_count,
+	    node.key.value);
 	for (auto const &child : node.children) {
 		dump_tree_line(out, *child, indent + 1);
 	}
 }
 
-auto System::dump_tree_stdout(WindowHandle const handle) const -> void
+auto System::dump_tree_string(WindowHandle handle) const
+    -> std::optional<std::string>
 {
 	if (handle.id != m_current_window.id || m_root == nullptr) {
-		return;
+		return std::nullopt;
 	}
 	std::string out {};
 	out.reserve(4096);
 	dump_tree_line(out, *m_root, 0);
-	std::fputs(out.c_str(), stdout);
+	return out;
+}
+
+auto System::dump_tree_stdout(WindowHandle const handle) const -> void
+{
+	auto const out { dump_tree_string(handle) };
+	if (!out)
+		return;
+	std::fputs(out->c_str(), stdout);
 }
 
 auto System::dump_tree_file(
     WindowHandle const handle, std::string_view const path) const -> bool
 {
-	if (handle.id != m_current_window.id || m_root == nullptr) {
+	auto const out { dump_tree_string(handle) };
+	if (!out)
 		return false;
-	}
-	std::string out {};
-	out.reserve(4096);
-	dump_tree_line(out, *m_root, 0);
 	std::ofstream file { std::string(path) };
 	if (!file.is_open()) {
 		return false;
 	}
-	file << out;
+	file << *out;
 	return static_cast<bool>(file);
 }
 
-auto System::dump_command_list_stdout(WindowHandle const handle) const -> void
+auto System::dump_command_list_string(WindowHandle handle) const
+    -> std::optional<std::string>
 {
 	if (handle.id != m_last_output.handle.id) {
-		return;
+		return std::nullopt;
 	}
+
+	std::string out {};
+	auto inserter { std::back_inserter(out) };
 	for (size_t i {}; i < m_last_output.draw_list.size(); ++i) {
-		auto const &cmd { m_last_output.draw_list[i] };
-		char line[512] {};
-		std::snprintf(line, sizeof(line), "[%zu] ", i);
-		std::fputs(line, stdout);
+		std::format_to(std::back_inserter(out), "[{}]", i);
 		std::visit(
 		    [&](auto const &payload) {
 			    using T = std::decay_t<decltype(payload)>;
 			    if constexpr (std::is_same_v<T, DrawCommand::PushClip>) {
-				    std::snprintf(line,
-				        sizeof(line),
-				        "PushClip rect=(%.1f,%.1f %.1fx%.1f)\n",
-				        static_cast<double>(payload.rect.position.x()),
-				        static_cast<double>(payload.rect.position.y()),
-				        static_cast<double>(payload.rect.size.x()),
-				        static_cast<double>(payload.rect.size.y()));
-				    std::fputs(line, stdout);
+				    std::format_to(inserter,
+				        "PushClip rect=({}, {})",
+				        payload.rect.position,
+				        payload.rect.size);
 			    } else if constexpr (std::is_same_v<T, DrawCommand::PopClip>) {
-				    std::fputs("PopClip\n", stdout);
+				    std::format_to(inserter, "PopClip");
 			    } else if constexpr (std::is_same_v<T, DrawCommand::Rect>) {
-				    std::snprintf(line,
-				        sizeof(line),
-				        "Rect rect=(%.1f,%.1f %.1fx%.1f) "
-				        "color=(%.2f,%.2f,%.2f,%.2f)\n",
-				        static_cast<double>(payload.rect.position.x()),
-				        static_cast<double>(payload.rect.position.y()),
-				        static_cast<double>(payload.rect.size.x()),
-				        static_cast<double>(payload.rect.size.y()),
-				        static_cast<double>(payload.color.x()),
-				        static_cast<double>(payload.color.y()),
-				        static_cast<double>(payload.color.z()),
-				        static_cast<double>(payload.color.w()));
-				    std::fputs(line, stdout);
+				    std::format_to(inserter,
+				        "Rect rect=({}, {}) color={}",
+				        payload.rect.position,
+				        payload.rect.size,
+				        payload.color);
 			    } else if constexpr (std::is_same_v<T, DrawCommand::Line>) {
-				    std::snprintf(line,
-				        sizeof(line),
-				        "Line start=(%.1f,%.1f) end=(%.1f,%.1f) t=%.1f "
-				        "color=(%.2f,%.2f,%.2f,%.2f)\n",
-				        static_cast<double>(payload.start.x()),
-				        static_cast<double>(payload.start.y()),
-				        static_cast<double>(payload.end.x()),
-				        static_cast<double>(payload.end.y()),
-				        static_cast<double>(payload.thickness),
-				        static_cast<double>(payload.color.x()),
-				        static_cast<double>(payload.color.y()),
-				        static_cast<double>(payload.color.z()),
-				        static_cast<double>(payload.color.w()));
-				    std::fputs(line, stdout);
+				    std::format_to(inserter,
+				        "Line start={} end={} thickness={} color={}",
+				        payload.start,
+				        payload.end,
+				        payload.thickness,
+				        payload.color);
 			    } else if constexpr (std::is_same_v<T,
 			                             DrawCommand::CircleSector>) {
-				    std::snprintf(line,
-				        sizeof(line),
-				        "CircleSector center=(%.1f,%.1f) r=%.1f start=%.3f "
-				        "end=%.3f seg=%d color=(%.2f,%.2f,%.2f,%.2f)\n",
-				        static_cast<double>(payload.center.x()),
-				        static_cast<double>(payload.center.y()),
-				        static_cast<double>(payload.radius),
-				        static_cast<double>(payload.start_radians),
-				        static_cast<double>(payload.end_radians),
+				    std::format_to(inserter,
+				        "CircleSector center={} radius={} start={} end={} "
+				        "seg={} color={}",
+				        payload.center,
+				        payload.radius,
+				        payload.start_radians,
+				        payload.end_radians,
 				        payload.segments,
-				        static_cast<double>(payload.color.x()),
-				        static_cast<double>(payload.color.y()),
-				        static_cast<double>(payload.color.z()),
-				        static_cast<double>(payload.color.w()));
-				    std::fputs(line, stdout);
+				        payload.color);
 			    } else if constexpr (std::is_same_v<T, DrawCommand::Text>) {
-				    std::snprintf(line,
-				        sizeof(line),
-				        "Text box=(%.1f,%.1f %.1fx%.1f) size=%.1f "
-				        "color=(%.2f,%.2f,%.2f,%.2f) value=\"%.*s\"\n",
-				        static_cast<double>(payload.box.position.x()),
-				        static_cast<double>(payload.box.position.y()),
-				        static_cast<double>(payload.box.size.x()),
-				        static_cast<double>(payload.box.size.y()),
-				        static_cast<double>(payload.size),
-				        static_cast<double>(payload.color.x()),
-				        static_cast<double>(payload.color.y()),
-				        static_cast<double>(payload.color.z()),
-				        static_cast<double>(payload.color.w()),
-				        static_cast<int>(payload.value.size()),
-				        payload.value.data());
-				    std::fputs(line, stdout);
+				    std::format_to(inserter,
+				        "Text box=({}, {}), size={} color={} value=\"{}\"",
+				        payload.box.position,
+				        payload.box.size,
+				        payload.size,
+				        payload.color,
+				        payload.value);
 			    } else if constexpr (std::is_same_v<T, DrawCommand::Image>) {
-				    std::snprintf(line,
-				        sizeof(line),
-				        "Image id=%lu src=(%.1f,%.1f %.1fx%.1f) dst=(%.1f,%.1f "
-				        "%.1fx%.1f) color=(%.2f,%.2f,%.2f,%.2f)\n",
-				        static_cast<unsigned long>(payload.image_id),
-				        static_cast<double>(payload.src.position.x()),
-				        static_cast<double>(payload.src.position.y()),
-				        static_cast<double>(payload.src.size.x()),
-				        static_cast<double>(payload.src.size.y()),
-				        static_cast<double>(payload.dst.position.x()),
-				        static_cast<double>(payload.dst.position.y()),
-				        static_cast<double>(payload.dst.size.x()),
-				        static_cast<double>(payload.dst.size.y()),
-				        static_cast<double>(payload.color.x()),
-				        static_cast<double>(payload.color.y()),
-				        static_cast<double>(payload.color.z()),
-				        static_cast<double>(payload.color.w()));
-				    std::fputs(line, stdout);
+				    std::format_to(inserter,
+				        "Image id={} src=({},{}) dst=({},{}) color={}",
+				        payload.image_id,
+				        payload.src.position,
+				        payload.src.size,
+				        payload.dst.position,
+				        payload.dst.size,
+				        payload.color);
 			    }
 		    },
-		    cmd.payload);
+		    m_last_output.draw_list[i].payload);
+		std::format_to(std::back_inserter(out), "\n");
 	}
+	return out;
+}
+
+auto System::dump_command_list_stdout(WindowHandle const handle) const -> void
+{
+	std::print("{}", dump_command_list_string(handle).value_or(""));
 }
 
 auto System::dump_command_list_file(
     WindowHandle const handle, std::string_view const path) const -> bool
 {
-	if (handle.id != m_last_output.handle.id) {
+	auto const out { dump_command_list_string(handle) };
+	if (!out)
 		return false;
-	}
 	std::ofstream file { std::string(path) };
 	if (!file.is_open()) {
 		return false;
 	}
-	for (size_t i {}; i < m_last_output.draw_list.size(); ++i) {
-		file << "[" << i << "] ";
-		std::visit(
-		    [&](auto const &payload) {
-			    using T = std::decay_t<decltype(payload)>;
-			    if constexpr (std::is_same_v<T, DrawCommand::PushClip>) {
-				    file << "PushClip rect=(" << payload.rect.position.x()
-				         << "," << payload.rect.position.y() << " "
-				         << payload.rect.size.x() << "x"
-				         << payload.rect.size.y() << ")\n";
-			    } else if constexpr (std::is_same_v<T, DrawCommand::PopClip>) {
-				    file << "PopClip\n";
-			    } else if constexpr (std::is_same_v<T, DrawCommand::Rect>) {
-				    file << "Rect rect=(" << payload.rect.position.x() << ","
-				         << payload.rect.position.y() << " "
-				         << payload.rect.size.x() << "x"
-				         << payload.rect.size.y() << ") color=("
-				         << payload.color.x() << "," << payload.color.y() << ","
-				         << payload.color.z() << "," << payload.color.w()
-				         << ")\n";
-			    } else if constexpr (std::is_same_v<T, DrawCommand::Line>) {
-				    file << "Line start=(" << payload.start.x() << ","
-				         << payload.start.y() << ") end=(" << payload.end.x()
-				         << "," << payload.end.y()
-				         << ") t=" << payload.thickness << " color=("
-				         << payload.color.x() << "," << payload.color.y() << ","
-				         << payload.color.z() << "," << payload.color.w()
-				         << ")\n";
-			    } else if constexpr (std::is_same_v<T,
-			                             DrawCommand::CircleSector>) {
-				    file << "CircleSector center=(" << payload.center.x() << ","
-				         << payload.center.y() << ") r=" << payload.radius
-				         << " start=" << payload.start_radians
-				         << " end=" << payload.end_radians
-				         << " seg=" << payload.segments << " color=("
-				         << payload.color.x() << "," << payload.color.y() << ","
-				         << payload.color.z() << "," << payload.color.w()
-				         << ")\n";
-			    } else if constexpr (std::is_same_v<T, DrawCommand::Text>) {
-				    file << "Text box=(" << payload.box.position.x() << ","
-				         << payload.box.position.y() << " "
-				         << payload.box.size.x() << "x" << payload.box.size.y()
-				         << ") size=" << payload.size << " color=("
-				         << payload.color.x() << "," << payload.color.y() << ","
-				         << payload.color.z() << "," << payload.color.w()
-				         << ") value=\"" << payload.value << "\"\n";
-			    } else if constexpr (std::is_same_v<T, DrawCommand::Image>) {
-				    file << "Image id=" << payload.image_id << " src=("
-				         << payload.src.position.x() << ","
-				         << payload.src.position.y() << " "
-				         << payload.src.size.x() << "x" << payload.src.size.y()
-				         << ") dst=(" << payload.dst.position.x() << ","
-				         << payload.dst.position.y() << " "
-				         << payload.dst.size.x() << "x" << payload.dst.size.y()
-				         << ") color=(" << payload.color.x() << ","
-				         << payload.color.y() << "," << payload.color.z() << ","
-				         << payload.color.w() << ")\n";
-			    }
-		    },
-		    m_last_output.draw_list[i].payload);
-	}
+	file << *out;
 	return static_cast<bool>(file);
 }
 

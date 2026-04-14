@@ -20,6 +20,8 @@
 namespace Engine
 {
 
+using GraphicsVertex = detail::GraphicsVertex;
+
 enum class TextAlignX
 {
 	Left,
@@ -76,14 +78,8 @@ struct Renderer
 	    smath::Vec4 color = Color::WHITE,
 	    TextAlignX align_x = TextAlignX::Left,
 	    TextAlignY align_y = TextAlignY::Top,
-	    std::optional<FontHandle> font = std::nullopt) -> void;
-	auto draw_text_boxed(std::string_view text,
-	    Rect<> const box,
-	    float size = 16.0f,
-	    smath::Vec4 color = Color::WHITE,
-	    TextAlignX align_x = TextAlignX::Left,
-	    TextAlignY align_y = TextAlignY::Top,
-	    std::optional<FontHandle> font = std::nullopt) -> void;
+	    std::optional<FontHandle> font = std::nullopt,
+	    bool const wrap = true) -> void;
 	auto push_clip_rect(Rect<> rect) -> void;
 	auto pop_clip_rect() -> void;
 	auto push_scissor(Rect<> rect) -> void;
@@ -91,6 +87,11 @@ struct Renderer
 	auto measure_text(std::string_view text,
 	    float size = 16.0f,
 	    std::optional<FontHandle> font = std::nullopt) -> smath::Vec2;
+
+	void draw_polygons(const std::vector<GraphicsVertex> &vertices,
+	    const std::vector<uint16_t> &indices);
+
+	void flush_batch();
 
 private:
 	struct ShapedGlyph
@@ -149,7 +150,6 @@ private:
 	    -> FontShapeCache *;
 	auto destroy_shape_caches() -> void;
 
-	auto flush_batch() -> void;
 	auto ensure_batch_capacity(size_t vertex_count, size_t index_count) -> void;
 	auto push_quad(Texture const *texture,
 	    Rect<> const src,

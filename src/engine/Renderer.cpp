@@ -681,7 +681,8 @@ auto Renderer::draw_text(std::string_view const text,
     smath::Vec4 const color,
     TextAlignX const align_x,
     TextAlignY const align_y,
-    std::optional<FontHandle> const font_handle) -> void
+    std::optional<FontHandle> const font_handle,
+    bool const wrap) -> void
 {
 	auto handle { font_handle.value_or(m_assets.active_font_handle()) };
 	auto const *font { m_assets.font(handle) };
@@ -693,58 +694,74 @@ auto Renderer::draw_text(std::string_view const text,
 	if (lh <= 0.0f) {
 		return;
 	}
+
 	auto const upem { static_cast<float>(std::max(font->units_per_em, 1)) };
 	auto const asc_px { static_cast<float>(font->ascent) * size / upem };
 	auto const desc_px { static_cast<float>(-font->descent) * size / upem };
+	auto const atlas_scale { size / font->atlas_base_size_px };
 
 	auto const shape_fn {
 		[&](std::string_view const line) -> std::vector<ShapedGlyph> const & {
 		    return shape_line(handle, *font, line, size);
-		},
-	};
-	std::unordered_map<std::string, float> width_cache {};
-	auto const width_of = [&](std::string_view const line) {
-		auto const key { std::string(line) };
-		auto it { width_cache.find(key) };
-		if (it != width_cache.end()) {
-			return it->second;
 		}
-		auto const width { shaped_line_width(line, shape_fn) };
-		width_cache.emplace(key, width);
-		return width;
 	};
 
 	std::vector<std::string> lines {};
-	size_t line_start {};
-	while (line_start <= text.size()) {
-		auto const line_end { text.find('\n', line_start) };
-		auto const segment_length { line_end == std::string_view::npos
-			    ? text.size() - line_start
-			    : line_end - line_start };
-		auto const source_line { text.substr(line_start, segment_length) };
-		auto wrapped {
-			wrap_line_words(source_line, box.size.x(), shape_fn),
-		};
-		for (auto &segment : wrapped) {
-			lines.push_back(std::move(segment));
+
+	if (!wrap) {
+		size_t line_start {};
+		while (line_start <= text.size()) {
+			auto const line_end { text.find('\n', line_start) };
+			auto const len { line_end == std::string_view::npos
+				    ? text.size() - line_start
+				    : line_end - line_start };
+			lines.emplace_back(text.substr(line_start, len));
+
+			if (line_end == std::string_view::npos)
+				break;
+			line_start = line_end + 1;
 		}
-		if (line_end == std::string_view::npos) {
-			break;
+	} else {
+		size_t line_start {};
+		while (line_start <= text.size()) {
+			auto const line_end { text.find('\n', line_start) };
+			auto const len { line_end == std::string_view::npos
+				    ? text.size() - line_start
+				    : line_end - line_start };
+			auto const source_line { text.substr(line_start, len) };
+
+			auto wrapped { wrap_line_words(
+				source_line, box.size.x(), shape_fn) };
+			for (auto &seg : wrapped) {
+				lines.push_back(std::move(seg));
+			}
+
+			if (line_end == std::string_view::npos)
+				break;
+			line_start = line_end + 1;
 		}
-		line_start = line_end + 1;
 	}
 
+	if (lines.empty()) {
+		lines.emplace_back();
+	}
+
+	// measure widths
 	std::vector<float> line_widths {};
 	line_widths.reserve(lines.size());
+
 	for (auto const &line : lines) {
-		auto const width { width_of(line) };
+		auto const &shaped { shape_fn(line) };
+		float width {};
+		for (auto const &g : shaped) {
+			width += g.x_advance;
+		}
 		line_widths.push_back(width);
 	}
 
-	auto const total_height {
-		(asc_px + desc_px)
-		    + std::max(0.0f, static_cast<float>(lines.size() - 1)) * lh,
-	};
+	auto const total_height { (asc_px + desc_px)
+		+ std::max(0.0f, static_cast<float>(lines.size() - 1)) * lh };
+
 	auto start_y { box.position.y() };
 	if (align_y == TextAlignY::Center) {
 		start_y += (box.size.y() - total_height) * 0.5f;
@@ -752,11 +769,10 @@ auto Renderer::draw_text(std::string_view const text,
 		start_y += box.size.y() - total_height;
 	}
 
-	auto const atlas_scale { size / font->atlas_base_size_px };
-	for (size_t line_index {}; line_index < lines.size(); ++line_index) {
-		auto const &line { lines[line_index] };
+	for (size_t i {}; i < lines.size(); ++i) {
+		auto const &line { lines[i] };
 		auto const &shaped { shape_fn(line) };
-		auto const line_width { line_widths[line_index] };
+		auto const line_width { line_widths[i] };
 
 		auto pen_x { box.position.x() };
 		if (align_x == TextAlignX::Center) {
@@ -764,49 +780,39 @@ auto Renderer::draw_text(std::string_view const text,
 		} else if (align_x == TextAlignX::Right) {
 			pen_x += box.size.x() - line_width;
 		}
-		auto pen_y { start_y + asc_px + static_cast<float>(line_index) * lh };
+
+		auto pen_y { start_y + asc_px + static_cast<float>(i) * lh };
 
 		for (auto const &glyph : shaped) {
 			auto const *cached { ensure_glyph(*font, glyph.glyph_id) };
-			if (cached != nullptr && cached->u1 > cached->u0
-			    && cached->v1 > cached->v0) {
+			if (cached && cached->u1 > cached->u0 && cached->v1 > cached->v0) {
 				auto const x { pen_x + glyph.x_offset
 					+ static_cast<float>(cached->x0) * atlas_scale };
 				auto const y { pen_y + glyph.y_offset
 					+ static_cast<float>(cached->y0) * atlas_scale };
+
 				push_quad(&font->atlas,
-				    Rect<> {
-				        .position = smath::Vec2 { cached->u0, cached->v0 },
-				        .size = smath::Vec2 {
-				            cached->u1 - cached->u0,
-				            cached->v1 - cached->v0,
-				        },
-				    },
-				    Rect<> {
-				        .position = smath::Vec2 { x, y },
-				        .size = smath::Vec2 {
-				            (cached->u1 - cached->u0) * atlas_scale,
-				            (cached->v1 - cached->v0) * atlas_scale,
-				        },
-				    },
-				    color);
+					Rect<> {
+						.position = smath::Vec2 { cached->u0, cached->v0 },
+						.size = smath::Vec2 {
+							cached->u1 - cached->u0,
+							cached->v1 - cached->v0,
+						},
+					},
+					Rect<> {
+						.position = smath::Vec2 { x, y },
+						.size = smath::Vec2 {
+							(cached->u1 - cached->u0) * atlas_scale,
+							(cached->v1 - cached->v0) * atlas_scale,
+						},
+					},
+					color);
 			}
 
 			pen_x += glyph.x_advance;
 			pen_y += glyph.y_advance;
 		}
 	}
-}
-
-auto Renderer::draw_text_boxed(std::string_view const text,
-    Rect<> const box,
-    float const size,
-    smath::Vec4 const color,
-    TextAlignX const align_x,
-    TextAlignY const align_y,
-    std::optional<FontHandle> const font_handle) -> void
-{
-	draw_text(text, box, size, color, align_x, align_y, font_handle);
 }
 
 auto Renderer::push_clip_rect(Rect<> const rect) -> void
@@ -989,6 +995,21 @@ auto Renderer::push_quad(Texture const *const texture,
 	indices[3] = static_cast<uint16_t>(base_index + 1);
 	indices[4] = static_cast<uint16_t>(base_index + 3);
 	indices[5] = static_cast<uint16_t>(base_index + 2);
+}
+
+void Renderer::draw_polygons(const std::vector<GraphicsVertex> &vertices,
+    const std::vector<uint16_t> &indices)
+{
+	if (m_batch_texture != nullptr) {
+		flush_batch();
+		m_batch_texture = nullptr;
+	}
+
+	if (!vertices.empty() && !indices.empty()) {
+		Platform::renderer_submit_batch(nullptr,
+		    std::span<GraphicsVertex const>(vertices.data(), vertices.size()),
+		    std::span<uint16_t const>(indices.data(), indices.size()));
+	}
 }
 
 } // namespace Engine

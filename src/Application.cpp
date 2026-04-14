@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <print>
 #include <variant>
 
 #include "engine/Common.h"
@@ -381,7 +382,9 @@ auto Application::on_update(float const dt) -> void
 				        payload.size,
 				        payload.color,
 				        align_x,
-				        align_y);
+				        align_y,
+				        std::nullopt,
+				        payload.wrap);
 			    } else if constexpr (std::is_same_v<T,
 			                             Gui::DrawCommand::Image>) {
 				    if (payload.image_id == GUI_ICON_IMAGE_ID
@@ -400,11 +403,10 @@ auto Application::on_update(float const dt) -> void
 	}
 
 	if (m_gui_hud_visible >= 1) {
-		char fps_label[32] {};
-		std::snprintf(fps_label,
-		    sizeof(fps_label),
-		    "fps: %.1f",
-		    static_cast<double>(fps_smooth));
+		std::string fps_label {};
+		fps_label.reserve(32);
+		std::format_to(
+		    std::back_inserter(fps_label), "fps: {:.01f}", fps_smooth);
 		renderer().draw_text(fps_label,
 		    Engine::Rect<> {
 		        .position = smath::Vec2 { 6.0f, 2.0f },
@@ -414,17 +416,16 @@ auto Application::on_update(float const dt) -> void
 		    Engine::Color::GREEN);
 
 		auto const render_stats { Engine::Platform::renderer_stats() };
-		char render_label[128] {};
-		std::snprintf(render_label,
-		    sizeof(render_label),
-		    "b:%lu t:%lu s:%lu bind:%lu up:%lu ub:%luKB",
-		    static_cast<unsigned long>(render_stats.batch_submits),
-		    static_cast<unsigned long>(render_stats.textured_submits),
-		    static_cast<unsigned long>(render_stats.solid_submits),
-		    static_cast<unsigned long>(render_stats.texture_binds),
-		    static_cast<unsigned long>(render_stats.texture_uploads),
-		    static_cast<unsigned long>(
-		        render_stats.texture_upload_bytes / 1024u));
+		std::string render_label {};
+		render_label.reserve(128);
+		std::format_to(std::back_inserter(render_label),
+		    "b:{} t:{} s:{} bind:{} up:{} ub:{}",
+		    render_stats.batch_submits,
+		    render_stats.textured_submits,
+		    render_stats.solid_submits,
+		    render_stats.texture_binds,
+		    render_stats.texture_uploads,
+		    render_stats.texture_upload_bytes / 1024u);
 		renderer().draw_text(render_label,
 		    Engine::Rect<> {
 		        .position = smath::Vec2 { 6.0f, 20.0f },
@@ -519,25 +520,22 @@ auto Application::on_update(float const dt) -> void
 				std::max<size_t>(1, m_frame_ms_count - 1),
 			};
 
-			for (int x_pixel {}; x_pixel < plot_columns; ++x_pixel) {
-				auto const sample_pos {
-					(static_cast<size_t>(x_pixel) * sample_den)
-					    / static_cast<size_t>(column_den),
-				};
-				auto const sample_index {
-					(oldest_index + sample_pos) % FRAME_TIME_HISTORY_CAPACITY,
-				};
-				auto const sample_ms { m_frame_ms_history[sample_index] };
-				auto const normalized {
-					std::clamp(sample_ms / FRAME_MS_SCALE_MAX, 0.0f, 1.0f),
-				};
-				auto const bar_h {
-					std::max(1.0f, normalized * (PLOT_H - 1.0f)),
-				};
-				auto const x {
-					PLOT_X + static_cast<float>(x_pixel),
-				};
-				auto const y { PLOT_Y + PLOT_H - bar_h };
+			std::vector<Engine::GraphicsVertex> bar_vertices;
+			std::vector<uint16_t> bar_indices;
+			bar_vertices.reserve(static_cast<size_t>(plot_columns) * 4);
+			bar_indices.reserve(static_cast<size_t>(plot_columns) * 6);
+			for (int x_pixel = 0; x_pixel < plot_columns; ++x_pixel) {
+				auto const sample_pos
+				    = (static_cast<size_t>(x_pixel) * sample_den)
+				    / static_cast<size_t>(column_den);
+				auto const sample_index
+				    = (oldest_index + sample_pos) % FRAME_TIME_HISTORY_CAPACITY;
+				auto const sample_ms = m_frame_ms_history[sample_index];
+				auto const normalized
+				    = std::clamp(sample_ms / FRAME_MS_SCALE_MAX, 0.0f, 1.0f);
+				auto const bar_h = std::max(1.0f, normalized * (PLOT_H - 1.0f));
+				auto const x = PLOT_X + static_cast<float>(x_pixel);
+				auto const y = PLOT_Y + PLOT_H - bar_h;
 
 				smath::Vec4 color { 1.0f, 0.15f, 0.15f, 1.0f };
 				if (sample_ms <= FRAME_MS_60FPS) {
@@ -545,19 +543,44 @@ auto Application::on_update(float const dt) -> void
 				} else if (sample_ms <= FRAME_MS_30FPS) {
 					color = smath::Vec4 { 1.0f, 0.85f, 0.1f, 1.0f };
 				}
+				uint32_t packed_color = smath::pack_unorm4x8(color);
+				Engine::GraphicsVertex tl { 0.f, 0.f, packed_color, x, y, 0.f };
+				Engine::GraphicsVertex tr {
+					1.f, 0.f, packed_color, x + 1.0f, y, 0.f
+				};
+				Engine::GraphicsVertex bl {
+					0.f, 1.f, packed_color, x, y + bar_h, 0.f
+				};
+				Engine::GraphicsVertex br {
+					1.f, 1.f, packed_color, x + 1.0f, y + bar_h, 0.f
+				};
 
-				renderer().draw_rectangle(
-				    smath::Vec2 { x, y }, smath::Vec2 { 1.0f, bar_h }, color);
+				auto base = static_cast<uint16_t>(bar_vertices.size());
+				bar_vertices.push_back(tl);
+				bar_vertices.push_back(tr);
+				bar_vertices.push_back(bl);
+				bar_vertices.push_back(br);
+				bar_indices.push_back(base);
+				bar_indices.push_back(base + 2);
+				bar_indices.push_back(base + 1);
+				bar_indices.push_back(base + 1);
+				bar_indices.push_back(base + 2);
+				bar_indices.push_back(base + 3);
+			}
+
+			if (!bar_vertices.empty() && !bar_indices.empty()) {
+				renderer().flush_batch();
+				renderer().draw_polygons(bar_vertices, bar_indices);
 			}
 		}
 
-		char frame_ms_label[96] {};
-		std::snprintf(frame_ms_label,
-		    sizeof(frame_ms_label),
-		    "dt:%.1f avg:%.1f max:%.1f",
-		    static_cast<double>(current_ms),
-		    static_cast<double>(avg_ms),
-		    static_cast<double>(max_ms));
+		std::string frame_ms_label {};
+		frame_ms_label.reserve(96);
+		std::format_to(std::back_inserter(frame_ms_label),
+		    "dt:{:.01f} avg:{:.01f} max:{:.01f}",
+		    current_ms,
+		    avg_ms,
+		    max_ms);
 		renderer().draw_text(frame_ms_label,
 		    Engine::Rect<> {
 		        .position = smath::Vec2 {
@@ -569,4 +592,15 @@ auto Application::on_update(float const dt) -> void
 		    12.0f,
 		    Engine::Color::BLACK);
 	}
+
+	std::println("======= DONE MAIN CONTENT, NOW TEST LONG STRING ======");
+	renderer().draw_text("asdfasdf87asdfas8d7f5sadf5456asd4f6as79d",
+	    Engine::Rect<> {
+	        smath::Vec2 { 0.0f, 100.0f },
+	        smath::Vec2 { 200.0f, 200.0f },
+	    },
+	    16.0f,
+	    Engine::Color::RED);
+
+	std::println("---------------- END FRAME BEGIN NEW ------------------");
 }
