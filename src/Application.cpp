@@ -160,7 +160,7 @@ auto Application::on_update(float const dt) -> void
 			        0xA11CEu,
 			        [&](Gui::Context &memo_ctx) {
 				        memo_ctx.scrollable(Gui::id("library"),
-				            Gui::ScrollOptions::builder().padding(4.0f).build(),
+				            Gui::ScrollOptions::builder().build(),
 				            [&](Gui::Context &scroll) {
 					            scroll.flex(Gui::id("library_list"),
 					                Gui::FlexOptions::builder()

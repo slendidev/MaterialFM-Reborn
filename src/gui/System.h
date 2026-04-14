@@ -78,7 +78,7 @@ struct DrawCommand
 	};
 	struct Text
 	{
-		std::string value {};
+		std::string_view value {};
 		Engine::Rect<> box {};
 		float size { 16.0f };
 		smath::Vec4 color {};
@@ -356,7 +356,7 @@ private:
 	bool m_confirm_released {};
 	bool m_prev_confirm_down {};
 	bool m_confirm_hold_consumed {};
-	std::unordered_set<Id, IdHash> m_selected {};
+	std::unordered_set<Id, Id::Hash> m_selected {};
 	Id m_pending_selectable_activation {};
 	Id m_root_focus_key {};
 	Id m_sidebar_focus_key {};
@@ -375,7 +375,7 @@ private:
 		bool has_target_x {};
 		bool has_target_y {};
 	};
-	std::unordered_map<Id, ScrollTweenState, IdHash> m_scroll_tweens {};
+	std::unordered_map<Id, ScrollTweenState, Id::Hash> m_scroll_tweens {};
 	struct TweenTrack
 	{
 		Animation::Tween tween {};
@@ -385,16 +385,17 @@ private:
 		bool has_generation {};
 		bool initialized {};
 	};
-	std::unordered_map<Id, TweenTrack, IdHash> m_tween_tracks {};
-	std::unordered_map<Id, std::any, IdHash> m_state_store {};
-	std::unordered_set<Id, IdHash> m_state_touched {};
+	std::unordered_map<Id, TweenTrack, Id::Hash> m_tween_tracks {};
+	std::unordered_map<Id, std::any, Id::Hash> m_state_store {};
+	std::unordered_set<Id, Id::Hash> m_state_touched {};
 	std::function<smath::Vec2(std::string_view, float)> m_text_measure_fn {};
 	uint32_t m_icon_image_id {};
 	std::unordered_map<std::string, Engine::Rect<>> m_icon_rects {};
-	std::unordered_map<Id, uint32_t, IdHash> m_memo_deps {};
-	std::unordered_map<Id, std::vector<std::unique_ptr<Node>>, IdHash>
+	std::unordered_map<Id, uint32_t, Id::Hash> m_memo_deps {};
+	std::unordered_map<Id, std::vector<std::unique_ptr<Node>>, Id::Hash>
 	    m_memo_children {};
-	std::unordered_map<Id, std::unique_ptr<Node>, IdHash> m_reconcile_nodes {};
+	std::unordered_map<Id, std::unique_ptr<Node>, Id::Hash>
+	    m_reconcile_nodes {};
 	std::vector<std::unique_ptr<Node>> m_node_pool {};
 	std::vector<RenderNode> m_render_nodes {};
 	struct DebugLabelCandidate

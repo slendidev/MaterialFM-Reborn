@@ -26,14 +26,6 @@ constexpr float DEFAULT_MODAL_HEIGHT { 170.0f };
 constexpr auto STATE_SALT { Gui::id("@state") };
 constexpr auto TWEEN_SALT { Gui::id("@tween") };
 
-auto id_hex(Gui::Id const key) -> std::string
-{
-	char buf[11] {};
-	std::snprintf(
-	    buf, sizeof(buf), "#%08lx", static_cast<unsigned long>(key.value));
-	return std::string(buf);
-}
-
 auto approx_equal(float const a, float const b, float const epsilon = 0.0001f)
     -> bool
 {
@@ -1643,7 +1635,7 @@ auto System::tick_scroll_animation(float const dt) -> void
 		return;
 	}
 
-	std::unordered_set<Id, IdHash> active_keys {};
+	std::unordered_set<Id, Id::Hash> active_keys {};
 	std::function<void(Node &)> animate_scroll = [&](Node &node) {
 		if (node.kind == Kind::Scrollable) {
 			active_keys.insert(node.key);
@@ -2752,7 +2744,7 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 			}
 		}
 
-		auto label { id_hex(candidate.key) };
+		auto label { candidate.key.short_label() };
 		if (label.empty()) {
 			continue;
 		}
@@ -3102,7 +3094,7 @@ auto System::dump_command_list_stdout(WindowHandle const handle) const -> void
 				    std::snprintf(line,
 				        sizeof(line),
 				        "Text box=(%.1f,%.1f %.1fx%.1f) size=%.1f "
-				        "color=(%.2f,%.2f,%.2f,%.2f) value=\"%s\"\n",
+				        "color=(%.2f,%.2f,%.2f,%.2f) value=\"%.*s\"\n",
 				        static_cast<double>(payload.box.position.x()),
 				        static_cast<double>(payload.box.position.y()),
 				        static_cast<double>(payload.box.size.x()),
@@ -3112,7 +3104,8 @@ auto System::dump_command_list_stdout(WindowHandle const handle) const -> void
 				        static_cast<double>(payload.color.y()),
 				        static_cast<double>(payload.color.z()),
 				        static_cast<double>(payload.color.w()),
-				        payload.value.c_str());
+				        static_cast<int>(payload.value.size()),
+				        payload.value.data());
 				    std::fputs(line, stdout);
 			    } else if constexpr (std::is_same_v<T, DrawCommand::Image>) {
 				    std::snprintf(line,
