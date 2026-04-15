@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <format>
@@ -374,6 +375,23 @@ auto System::measure_leaf(Node const &node) const -> MeasuredSize
 auto System::measure_node(Node const &node, float const available_width) const
     -> MeasuredSize
 {
+	auto const available_width_bits {
+		std::bit_cast<uint32_t>(available_width),
+	};
+	if (auto const it { m_measure_cache.find(&node) };
+	    it != m_measure_cache.end()
+	    && it->second.available_width_bits == available_width_bits) {
+		return it->second.size;
+	}
+
+	auto const store_measure { [&](MeasuredSize const size) {
+		m_measure_cache[&node] = MeasureCacheEntry {
+			.available_width_bits = available_width_bits,
+			.size = size,
+		};
+		return size;
+	} };
+
 	if (node.fixed_width > 0.0f || node.fixed_height > 0.0f) {
 		auto leaf { measure_leaf(node) };
 		if (node.fixed_width > 0.0f) {
@@ -382,14 +400,14 @@ auto System::measure_node(Node const &node, float const available_width) const
 		if (node.fixed_height > 0.0f) {
 			leaf.height = node.fixed_height;
 		}
-		return leaf;
+		return store_measure(leaf);
 	}
 
 	switch (node.kind) {
 	case Kind::Text:
 	case Kind::Icon:
 	case Kind::Spacer:
-		return measure_leaf(node);
+		return store_measure(measure_leaf(node));
 
 	case Kind::Scrollable:
 	case Kind::Flex:
@@ -443,7 +461,7 @@ auto System::measure_node(Node const &node, float const available_width) const
 		out.height = node.padding_top + main_sum + node.padding_bottom;
 	}
 
-	return clamp_size(out, node);
+	return store_measure(clamp_size(out, node));
 }
 
 System::System()
@@ -2424,6 +2442,7 @@ auto System::layout_node(Node &node,
 
 auto System::layout_tree() -> void
 {
+	m_measure_cache.clear();
 	m_root->local_rect.position = smath::Vec2 { 0.0f, 0.0f };
 	m_root->local_rect.size = m_window_rect.size;
 

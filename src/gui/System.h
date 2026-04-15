@@ -282,6 +282,12 @@ private:
 		uint16_t next_sibling { INVALID_NODE_INDEX };
 	};
 
+	struct MeasureCacheEntry
+	{
+		uint32_t available_width_bits {};
+		MeasuredSize size {};
+	};
+
 	auto rebuild_node_index() -> void;
 	auto active_scope() const -> Scope;
 	auto collect_reconcile_nodes(std::unique_ptr<Node> node) -> void;
@@ -413,6 +419,8 @@ private:
 	    m_reconcile_nodes {};
 	std::vector<std::unique_ptr<Node>> m_node_pool {};
 	std::vector<RenderNode> m_render_nodes {};
+	mutable std::unordered_map<Node const *, MeasureCacheEntry>
+	    m_measure_cache {};
 	std::unordered_map<Id, Node *, Id::Hash> m_nodes_by_key {};
 	struct DebugLabelCandidate
 	{
