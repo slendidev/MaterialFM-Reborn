@@ -890,6 +890,17 @@ struct AssetManager::Impl
 
 	auto clear_song_ring() -> void { song_ring.reset(); }
 
+	auto has_valid_song_decoder_locked() const -> bool
+	{
+		if (!song_state.has_value()) {
+			return false;
+		}
+		if (song_state->format == SongSlot::Format::Mp3) {
+			return song_state->mp3_handle >= 0;
+		}
+		return song_state->use_media_engine_ogg || song_state->decoder != nullptr;
+	}
+
 	auto ensure_audio_started() -> AssetError
 	{
 		if (audio_initialized.load(std::memory_order_acquire)) {
@@ -1400,20 +1411,6 @@ struct AssetManager::Impl
 				continue;
 			}
 
-			{
-				std::lock_guard<std::mutex> lock(song_state_mutex);
-				bool valid_decoder { !song_state.has_value()
-					    ? false
-					    : (song_state->format == SongSlot::Format::Mp3
-					              ? (song_state->mp3_handle >= 0)
-					              : (song_state->use_media_engine_ogg
-					                    || song_state->decoder != nullptr)) };
-				if (!valid_decoder) {
-					sceKernelDelayThread(SONG_THREAD_SLEEP_US);
-					continue;
-				}
-			}
-
 			auto const filled { song_ring_filled() };
 			if (filled >= SONG_RING_HIGH_WATERMARK) {
 				sceKernelDelayThread(SONG_THREAD_SLEEP_US);
@@ -1431,34 +1428,30 @@ struct AssetManager::Impl
 
 			auto const decode_frames { std::min(TARGET_FRAMES, needed) };
 
+			bool should_sleep {};
 			size_t produced {};
 			{
 				std::lock_guard<std::mutex> lock(song_state_mutex);
-				bool valid_decoder { !song_state.has_value()
-					    ? false
-					    : (song_state->format == SongSlot::Format::Mp3
-					              ? (song_state->mp3_handle >= 0)
-					              : (song_state->use_media_engine_ogg
-					                    || song_state->decoder != nullptr)) };
-				if (!valid_decoder || song_state->paused) {
-					sceKernelDelayThread(SONG_THREAD_SLEEP_US);
-					continue;
+				if (!has_valid_song_decoder_locked() || song_state->paused) {
+					should_sleep = true;
+				} else {
+					produced
+					    = render_song_frames_locked(*song_state, decode_frames);
+					if (produced == 0 && !song_state->options.loop) {
+						song_playing.store(false, std::memory_order_release);
+						song_paused.store(false, std::memory_order_release);
+						song_state->paused = true;
+						should_sleep = true;
+					} else if (produced > 0) {
+						ring_push_frames(
+						    song_state->output_scratch.data(), produced);
+					}
 				}
+			}
 
-				produced
-				    = render_song_frames_locked(*song_state, decode_frames);
-				if (produced == 0 && !song_state->options.loop) {
-					song_playing.store(false, std::memory_order_release);
-					song_paused.store(false, std::memory_order_release);
-					song_state->paused = true;
-					sceKernelDelayThread(SONG_THREAD_SLEEP_US);
-					continue;
-				}
-
-				if (produced > 0) {
-					ring_push_frames(
-					    song_state->output_scratch.data(), produced);
-				}
+			if (should_sleep) {
+				sceKernelDelayThread(SONG_THREAD_SLEEP_US);
+				continue;
 			}
 
 			if (!song_playing.load(std::memory_order_acquire)
