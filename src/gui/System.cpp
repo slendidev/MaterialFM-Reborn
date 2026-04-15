@@ -41,6 +41,16 @@ auto rect_equal(Engine::Rect<> const &a, Engine::Rect<> const &b) -> bool
 	    && approx_equal(a.size.y(), b.size.y());
 }
 
+auto debug_label_for_id(Id const key) -> std::string
+{
+	char buffer[16] {};
+	std::snprintf(buffer,
+	    sizeof(buffer),
+	    "%08lx",
+	    static_cast<unsigned long>(key.value));
+	return std::string(buffer);
+}
+
 auto tween_spec_equal(
     Animation::TweenSpec const &a, Animation::TweenSpec const &b) -> bool
 {
@@ -2874,7 +2884,7 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 			}
 		}
 
-		std::string label { candidate.key.short_label() };
+		std::string label { debug_label_for_id(candidate.key) };
 		if (label.empty()) {
 			continue;
 		}
