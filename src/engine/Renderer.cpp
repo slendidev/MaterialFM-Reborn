@@ -45,37 +45,27 @@ auto line_height(Font const &font, float const size_px) -> float
 	return units * size_px / upem;
 }
 
-template<typename ShapeFn>
-auto shaped_line_width(std::string_view const text, ShapeFn const &shape_fn)
-    -> float
-{
-	auto const &shaped { shape_fn(text) };
-	float width {};
-	for (auto const &glyph : shaped) {
-		width += glyph.x_advance;
-	}
-	return width;
-}
-
-template<typename ShapeFn>
-auto append_hard_wrapped_word(std::vector<std::string> &out,
-    std::string_view const word,
+template<typename EntryFn, typename EmitFn>
+auto append_hard_wrapped_word(std::string_view const word,
     float const max_width,
-    ShapeFn const &shape_fn) -> void
+    EntryFn const &entry_fn,
+    EmitFn const &emit_fn) -> void
 {
 	if (word.empty()) {
 		return;
 	}
 	if (max_width <= 0.0f) {
-		out.emplace_back(word);
+		auto const *entry { entry_fn(word) };
+		emit_fn(word, entry, entry != nullptr ? entry->width : 0.0f);
 		return;
 	}
 
-	auto const &glyphs { shape_fn(word) };
-	if (glyphs.empty()) {
-		out.emplace_back(word);
+	auto const *entry { entry_fn(word) };
+	if (entry == nullptr || entry->glyphs.empty()) {
+		emit_fn(word, entry, entry != nullptr ? entry->width : 0.0f);
 		return;
 	}
+	auto const &glyphs { entry->glyphs };
 
 	size_t segment_start = 0;
 	size_t segment_len = 0;
@@ -84,7 +74,11 @@ auto append_hard_wrapped_word(std::vector<std::string> &out,
 	for (size_t i = 0; i < glyphs.size() && i < word.size(); ++i) {
 		float const next_width = segment_width + glyphs[i].x_advance;
 		if (segment_len > 0 && next_width > max_width) {
-			out.emplace_back(word.substr(segment_start, segment_len));
+			auto const segment { word.substr(segment_start, segment_len) };
+			auto const *segment_entry { entry_fn(segment) };
+			emit_fn(segment,
+			    segment_entry,
+			    segment_entry != nullptr ? segment_entry->width : segment_width);
 			segment_start += segment_len;
 			segment_len = 0;
 			segment_width = 0.0f;
@@ -94,24 +88,35 @@ auto append_hard_wrapped_word(std::vector<std::string> &out,
 	}
 
 	if (segment_len > 0) {
-		out.emplace_back(word.substr(segment_start, segment_len));
+		auto const segment { word.substr(segment_start, segment_len) };
+		auto const *segment_entry { entry_fn(segment) };
+		emit_fn(segment,
+		    segment_entry,
+		    segment_entry != nullptr ? segment_entry->width : segment_width);
 	}
 }
 
-template<typename ShapeFn>
-auto wrap_line_words(std::vector<std::string> &out,
-    std::string_view const line,
+template<typename EntryFn, typename EmitFn>
+auto wrap_line_words(std::string_view const line,
     float const max_width,
-    ShapeFn const &shape_fn) -> void
+    EntryFn const &entry_fn,
+    EmitFn const &emit_fn) -> void
 {
-	auto const out_start { out.size() };
+	auto emitted_any { false };
+	auto emit_line { [&](std::string_view const wrapped_line,
+	                    auto const *const entry,
+	                    float const width) {
+		emit_fn(wrapped_line, entry, width);
+		emitted_any = true;
+	} };
 
 	if (line.empty()) {
-		out.emplace_back();
+		emit_line({}, nullptr, 0.0f);
 		return;
 	}
 	if (max_width <= 0.0f) {
-		out.emplace_back(line);
+		auto const *entry { entry_fn(line) };
+		emit_line(line, entry, entry != nullptr ? entry->width : 0.0f);
 		return;
 	}
 
@@ -120,14 +125,22 @@ auto wrap_line_words(std::vector<std::string> &out,
 		    || c == '\v';
 	};
 
-	auto const space_width = shaped_line_width(" ", shape_fn);
-
-	out.reserve(out.size() + line.size() / 16 + 1);
+	auto const *space_entry { entry_fn(" ") };
+	auto const space_width {
+		space_entry != nullptr ? space_entry->width : 0.0f,
+	};
 
 	std::string current_line;
 	current_line.reserve(line.size());
 
 	float current_width = 0.0f;
+	auto flush_current_line { [&]() {
+		auto const view { std::string_view(current_line) };
+		auto const *entry { entry_fn(view) };
+		emit_line(view, entry, entry != nullptr ? entry->width : current_width);
+		current_line.clear();
+		current_width = 0.0f;
+	} };
 
 	size_t i = 0;
 	while (i < line.size()) {
@@ -146,11 +159,14 @@ auto wrap_line_words(std::vector<std::string> &out,
 		}
 
 		std::string_view word = line.substr(start, i - start);
-		float const word_width = shaped_line_width(word, shape_fn);
+		auto const *word_entry { entry_fn(word) };
+		float const word_width {
+			word_entry != nullptr ? word_entry->width : 0.0f,
+		};
 
 		if (current_line.empty()) {
 			if (word_width > max_width) {
-				append_hard_wrapped_word(out, word, max_width, shape_fn);
+				append_hard_wrapped_word(word, max_width, entry_fn, emit_line);
 			} else {
 				current_line.append(word.data(), word.size());
 				current_width = word_width;
@@ -160,12 +176,10 @@ auto wrap_line_words(std::vector<std::string> &out,
 
 		float const candidate_width = current_width + space_width + word_width;
 		if (candidate_width > max_width) {
-			out.push_back(current_line);
-			current_line.clear();
+			flush_current_line();
 
 			if (word_width > max_width) {
-				append_hard_wrapped_word(out, word, max_width, shape_fn);
-				current_width = 0.0f;
+				append_hard_wrapped_word(word, max_width, entry_fn, emit_line);
 			} else {
 				current_line.append(word.data(), word.size());
 				current_width = word_width;
@@ -179,10 +193,10 @@ auto wrap_line_words(std::vector<std::string> &out,
 	}
 
 	if (!current_line.empty()) {
-		out.push_back(std::move(current_line));
+		flush_current_line();
 	}
-	if (out.size() == out_start) {
-		out.emplace_back();
+	if (!emitted_any) {
+		emit_line({}, nullptr, 0.0f);
 	}
 }
 
@@ -752,24 +766,21 @@ auto Renderer::draw_text(std::string_view const text,
 	auto const desc_px { static_cast<float>(-font->descent) * size / upem };
 	auto const atlas_scale { size / font->atlas_base_size_px };
 
-	auto const shape_fn {
-		[&](std::string_view const line) -> std::vector<ShapedGlyph> const & {
-		    return shape_line(handle, *font, line, size);
-		}
+	auto const entry_fn {
+		[&](std::string_view const line) {
+			return shape_line_entry(handle, *font, line, size);
+		},
 	};
 
-	static std::vector<std::string> wrapped_lines {};
-	wrapped_lines.clear();
 	static std::vector<TextLayoutLine> layout_lines {};
 	layout_lines.clear();
 	static std::vector<ShapedGlyph> const empty_glyphs {};
 
 	auto append_layout_line {
-		[&](std::string_view const line) {
-			auto const *entry { shape_line_entry(handle, *font, line, size) };
+		[&](std::string_view const, auto const *const entry, float const width) {
 			layout_lines.push_back(TextLayoutLine {
 			    .glyphs = entry != nullptr ? &entry->glyphs : &empty_glyphs,
-			    .width = entry != nullptr ? entry->width : 0.0f,
+			    .width = width,
 			});
 		},
 	};
@@ -783,13 +794,12 @@ auto Renderer::draw_text(std::string_view const text,
 		auto const source_line { text.substr(line_start, len) };
 
 		if (!wrap) {
-			append_layout_line(source_line);
+			auto const *entry { entry_fn(source_line) };
+			append_layout_line(
+			    source_line, entry, entry != nullptr ? entry->width : 0.0f);
 		} else {
-			auto const wrapped_start { wrapped_lines.size() };
-			wrap_line_words(wrapped_lines, source_line, box.size.x(), shape_fn);
-			for (size_t i { wrapped_start }; i < wrapped_lines.size(); ++i) {
-				append_layout_line(wrapped_lines[i]);
-			}
+			wrap_line_words(
+			    source_line, box.size.x(), entry_fn, append_layout_line);
 		}
 
 		if (line_end == std::string_view::npos) {
