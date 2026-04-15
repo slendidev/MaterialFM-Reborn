@@ -377,7 +377,7 @@ auto Application::on_update(float const dt) -> void
 					        : (payload.align_y == Gui::TextAlignY::Bottom
 					                  ? Engine::TextAlignY::Bottom
 					                  : Engine::TextAlignY::Top) };
-				    renderer().draw_text(payload.value,
+				    renderer().draw_text(payload.value_view(),
 				        payload.box,
 				        payload.size,
 				        payload.color,

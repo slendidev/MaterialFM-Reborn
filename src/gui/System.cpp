@@ -2566,7 +2566,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			    = choose_color(node.selected_text_color, m_theme.on_primary);
 		}
 		draw_list.push_back(DrawCommand { .payload = DrawCommand::Text {
-		                                      .value = label,
+		                                      .value = std::string_view(label),
 		                                      .box = node.rect,
 		                                      .size = node.text_size,
 		                                      .color = text_color,
@@ -2962,7 +2962,7 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 		    } });
 		draw_list.push_back(
 		    DrawCommand { .payload = DrawCommand::Text {
-		                      .value = label,
+		                      .value = std::move(label),
 		                      .box = Engine::Rect<> {
 		                          .position = smath::Vec2 { label_x, label_y },
 		                          .size = smath::Vec2 { 256.0f, 16.0f },
@@ -3216,7 +3216,7 @@ auto System::dump_command_list_string(WindowHandle handle) const
 				        payload.box.size,
 				        payload.size,
 				        payload.color,
-				        payload.value);
+				        payload.value_view());
 			    } else if constexpr (std::is_same_v<T, DrawCommand::Image>) {
 				    std::format_to(inserter,
 				        "Image id={} src=({},{}) dst=({},{}) color={}",
