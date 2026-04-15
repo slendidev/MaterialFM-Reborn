@@ -27,10 +27,16 @@ constexpr float DEFAULT_MODAL_HEIGHT { 170.0f };
 constexpr auto STATE_SALT { Gui::id("@state") };
 constexpr auto TWEEN_SALT { Gui::id("@tween") };
 
-auto approx_equal(float const a, float const b, float const epsilon = 0.0001f)
-    -> bool
+[[gnu::always_inline]] inline auto approx_equal(
+    float const a, float const b, float const epsilon = 0.0001f) -> bool
 {
 	return std::abs(a - b) <= epsilon;
+}
+
+[[gnu::always_inline]] inline auto rect_equal(
+    Engine::Rect<> const &a, Engine::Rect<> const &b) -> bool
+{
+	return a.position.approx_equal(b.position) && a.size.approx_equal(b.size);
 }
 
 auto tween_spec_equal(
@@ -831,12 +837,17 @@ auto System::begin_frame(WindowHandle const handle,
     float const dt,
     Engine::Rect<> const rect) -> void
 {
+	auto const window_rect_changed { !rect_equal(m_window_rect, rect) };
 	m_current_window = handle;
 	m_window_rect = rect;
 	m_input = input;
 	m_dt = dt;
 	m_confirm_hold_started = false;
 	m_stats = Stats {};
+	if (window_rect_changed) {
+		m_layout_dirty = true;
+		m_visual_dirty = true;
+	}
 
 	m_confirm_released = m_prev_confirm_down && !m_input.confirm_down;
 	if (!m_prev_confirm_down && m_input.confirm_down) {
@@ -2970,9 +2981,11 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 	if (handle.id != m_current_window.id) {
 		return m_last_output;
 	}
+	bool rebuilt_draw_state {};
 	if (m_layout_dirty) {
 		layout_tree();
 		m_world_dirty = true;
+		rebuilt_draw_state = true;
 	}
 	if (m_world_dirty) {
 		update_world_tree();
@@ -2981,6 +2994,16 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 		m_render_nodes.reserve(NODE_POOL_MAX);
 		m_render_root_index = build_render_cache_node(*m_root, 0);
 		m_world_dirty = false;
+		rebuilt_draw_state = true;
+	}
+
+	auto const can_reuse_draw_list {
+		!rebuilt_draw_state && !m_visual_dirty && !m_hud_visible
+		    && handle.id == m_last_output.handle.id
+		    && rect_equal(m_last_output.rect, m_window_rect),
+	};
+	if (can_reuse_draw_list) {
+		return m_last_output;
 	}
 
 	m_last_output.handle = handle;
