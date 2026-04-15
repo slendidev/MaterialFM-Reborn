@@ -42,7 +42,7 @@ void assert_impl(bool const condition,
 } // namespace Engine
 
 #ifdef NDEBUG
-#define sassert(cond, message) ((void)0)
+#define sassert(cond, message) ((void)(cond))
 #else
 #define sassert(cond, message) \
 	::Engine::detail::assert_impl(cond, message, __FILE__, __LINE__)
