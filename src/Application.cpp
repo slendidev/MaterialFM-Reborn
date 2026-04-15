@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
-#include <print>
 #include <variant>
 
 #include "engine/Common.h"
@@ -23,14 +22,20 @@ Application::Application()
 	};
 	sassert(song_result == Engine::AssetError::Ok, "Failed to load song asset");
 
-	auto const font_result {
+	auto font_result {
 		assets().load_font_from_file(
-		    "ubuntu", "assets/Fonts/NotoSansJP-Regular.ttf"),
+		    "ubuntu", "assets/Fonts/Ubuntu-Regular.ttf"),
 	};
 	sassert(font_result == Engine::AssetError::Ok, "Failed to load font asset");
+
+	font_result = assets().load_font_from_file(
+	    "notosansjp", "assets/Fonts/NotoSansJP-Regular.ttf", m_notosansjp_font),
+	sassert(font_result == Engine::AssetError::Ok, "Failed to load font asset");
+
 	sassert(assets().set_active_font(assets().font_handle("ubuntu"))
 	        == Engine::AssetError::Ok,
 	    "Failed to set active font");
+
 	m_gui_measure_font_handle = assets().active_font_handle();
 	m_gui.set_text_measure_fn([this](std::string_view const text,
 	                              float const size) {
@@ -593,19 +598,22 @@ auto Application::on_update(float const dt) -> void
 		    Engine::Color::BLACK);
 	}
 
-	renderer().draw_text("日本語が好き",
-	    Engine::Rect<> {
-	        smath::Vec2 { 0.0f, 50.0f },
-	        smath::Vec2 { 200.0f, 200.0f },
-	    },
-	    24.0f,
-	    Engine::Color::RED);
+	// renderer().draw_text("日本語が好き",
+	//     Engine::Rect<> {
+	//         smath::Vec2 { 0.0f, 50.0f },
+	//         smath::Vec2 { 200.0f, 200.0f },
+	//     },
+	//     24.0f,
+	//     Engine::Color::RED,
+	//     Engine::TextAlignX::Left,
+	//     Engine::TextAlignY::Top,
+	//     m_notosansjp_font);
 
-	renderer().draw_text("asdfasdf87asdfas8d7f5sadf5456asd4f6as79d",
-	    Engine::Rect<> {
-	        smath::Vec2 { 0.0f, 100.0f },
-	        smath::Vec2 { 200.0f, 200.0f },
-	    },
-	    16.0f,
-	    Engine::Color::RED);
+	// renderer().draw_text("asdfasdf87asdfas8d7f5sadf5456asd4f6as79d",
+	//     Engine::Rect<> {
+	//         smath::Vec2 { 0.0f, 100.0f },
+	//         smath::Vec2 { 200.0f, 200.0f },
+	//     },
+	//     16.0f,
+	//     Engine::Color::RED);
 }
