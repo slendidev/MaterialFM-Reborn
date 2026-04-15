@@ -561,12 +561,6 @@ auto Renderer::draw_line(smath::Vec2 const start,
 	ensure_batch_capacity(4, 6);
 	auto const color_u32 { smath::pack_unorm4x8(color) };
 	auto const base_index { static_cast<uint16_t>(m_batch_vertices.size()) };
-	auto const vertex_start { m_batch_vertices.size() };
-	m_batch_vertices.resize(vertex_start + 4);
-	auto *const vertices { m_batch_vertices.data() + vertex_start };
-	auto const index_start { m_batch_indices.size() };
-	m_batch_indices.resize(index_start + 6);
-	auto *const indices { m_batch_indices.data() + index_start };
 
 	auto const nx { -dy / length * half_thickness };
 	auto const ny { dx / length * half_thickness };
@@ -575,45 +569,45 @@ auto Renderer::draw_line(smath::Vec2 const start,
 	auto const p2 { smath::Vec2 { start.x() - nx, start.y() - ny } };
 	auto const p3 { smath::Vec2 { end.x() - nx, end.y() - ny } };
 
-	vertices[0] = detail::GraphicsVertex {
+	m_batch_vertices.push_back(detail::GraphicsVertex {
 		.u = 0.0f,
 		.v = 0.0f,
 		.color = color_u32,
 		.x = p0.x(),
 		.y = p0.y(),
 		.z = 0.0f,
-	};
-	vertices[1] = detail::GraphicsVertex {
+	});
+	m_batch_vertices.push_back(detail::GraphicsVertex {
 		.u = 0.0f,
 		.v = 0.0f,
 		.color = color_u32,
 		.x = p1.x(),
 		.y = p1.y(),
 		.z = 0.0f,
-	};
-	vertices[2] = detail::GraphicsVertex {
+	});
+	m_batch_vertices.push_back(detail::GraphicsVertex {
 		.u = 0.0f,
 		.v = 0.0f,
 		.color = color_u32,
 		.x = p2.x(),
 		.y = p2.y(),
 		.z = 0.0f,
-	};
-	vertices[3] = detail::GraphicsVertex {
+	});
+	m_batch_vertices.push_back(detail::GraphicsVertex {
 		.u = 0.0f,
 		.v = 0.0f,
 		.color = color_u32,
 		.x = p3.x(),
 		.y = p3.y(),
 		.z = 0.0f,
-	};
+	});
 
-	indices[0] = base_index;
-	indices[1] = static_cast<uint16_t>(base_index + 1);
-	indices[2] = static_cast<uint16_t>(base_index + 2);
-	indices[3] = static_cast<uint16_t>(base_index + 1);
-	indices[4] = static_cast<uint16_t>(base_index + 3);
-	indices[5] = static_cast<uint16_t>(base_index + 2);
+	m_batch_indices.push_back(base_index);
+	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 1));
+	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 2));
+	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 1));
+	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 3));
+	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 2));
 }
 
 auto Renderer::draw_circle(smath::Vec2 const center,
@@ -659,21 +653,15 @@ auto Renderer::draw_circle_sector(smath::Vec2 const center,
 
 	auto const color_u32 { smath::pack_unorm4x8(color) };
 	auto const base { static_cast<uint16_t>(m_batch_vertices.size()) };
-	auto const vertex_start { m_batch_vertices.size() };
-	m_batch_vertices.resize(vertex_start + needed_vertices);
-	auto *const vertices { m_batch_vertices.data() + vertex_start };
-	auto const index_start { m_batch_indices.size() };
-	m_batch_indices.resize(index_start + needed_indices);
-	auto *const indices { m_batch_indices.data() + index_start };
 
-	vertices[0] = detail::GraphicsVertex {
+	m_batch_vertices.push_back(detail::GraphicsVertex {
 		.u = 0.0f,
 		.v = 0.0f,
 		.color = color_u32,
 		.x = center.x(),
 		.y = center.y(),
 		.z = 0.0f,
-	};
+	});
 
 	for (int i {}; i <= seg_count; ++i) {
 		auto const t {
@@ -682,21 +670,20 @@ auto Renderer::draw_circle_sector(smath::Vec2 const center,
 		auto const angle { start_radians + sweep * t };
 		auto const x { center.x() + std::cos(angle) * radius };
 		auto const y { center.y() + std::sin(angle) * radius };
-		vertices[static_cast<size_t>(i) + 1] = detail::GraphicsVertex {
+		m_batch_vertices.push_back(detail::GraphicsVertex {
 			.u = 0.0f,
 			.v = 0.0f,
 			.color = color_u32,
 			.x = x,
 			.y = y,
 			.z = 0.0f,
-		};
+		});
 	}
 
 	for (int i {}; i < seg_count; ++i) {
-		auto const idx { static_cast<size_t>(i) * 3 };
-		indices[idx] = base;
-		indices[idx + 1] = static_cast<uint16_t>(base + i + 1);
-		indices[idx + 2] = static_cast<uint16_t>(base + i + 2);
+		m_batch_indices.push_back(base);
+		m_batch_indices.push_back(static_cast<uint16_t>(base + i + 1));
+		m_batch_indices.push_back(static_cast<uint16_t>(base + i + 2));
 	}
 }
 
@@ -986,12 +973,6 @@ auto Renderer::push_quad(Texture const *const texture,
 
 	auto const color_u32 { smath::pack_unorm4x8(color) };
 	auto const base_index { static_cast<uint16_t>(m_batch_vertices.size()) };
-	auto const vertex_start { m_batch_vertices.size() };
-	m_batch_vertices.resize(vertex_start + 4);
-	auto *const vertices { m_batch_vertices.data() + vertex_start };
-	auto const index_start { m_batch_indices.size() };
-	m_batch_indices.resize(index_start + 6);
-	auto *const indices { m_batch_indices.data() + index_start };
 
 	float u0 {};
 	float v0 {};
@@ -1011,45 +992,45 @@ auto Renderer::push_quad(Texture const *const texture,
 	auto const x1 { dst.position.x() + dst.size.x() };
 	auto const y1 { dst.position.y() + dst.size.y() };
 
-	vertices[0] = detail::GraphicsVertex {
+	m_batch_vertices.push_back(detail::GraphicsVertex {
 		.u = u0,
 		.v = v0,
 		.color = color_u32,
 		.x = x0,
 		.y = y0,
 		.z = 0.0f,
-	};
-	vertices[1] = detail::GraphicsVertex {
+	});
+	m_batch_vertices.push_back(detail::GraphicsVertex {
 		.u = u1,
 		.v = v0,
 		.color = color_u32,
 		.x = x1,
 		.y = y0,
 		.z = 0.0f,
-	};
-	vertices[2] = detail::GraphicsVertex {
+	});
+	m_batch_vertices.push_back(detail::GraphicsVertex {
 		.u = u0,
 		.v = v1,
 		.color = color_u32,
 		.x = x0,
 		.y = y1,
 		.z = 0.0f,
-	};
-	vertices[3] = detail::GraphicsVertex {
+	});
+	m_batch_vertices.push_back(detail::GraphicsVertex {
 		.u = u1,
 		.v = v1,
 		.color = color_u32,
 		.x = x1,
 		.y = y1,
 		.z = 0.0f,
-	};
+	});
 
-	indices[0] = base_index;
-	indices[1] = static_cast<uint16_t>(base_index + 1);
-	indices[2] = static_cast<uint16_t>(base_index + 2);
-	indices[3] = static_cast<uint16_t>(base_index + 1);
-	indices[4] = static_cast<uint16_t>(base_index + 3);
-	indices[5] = static_cast<uint16_t>(base_index + 2);
+	m_batch_indices.push_back(base_index);
+	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 1));
+	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 2));
+	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 1));
+	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 3));
+	m_batch_indices.push_back(static_cast<uint16_t>(base_index + 2));
 }
 
 void Renderer::draw_polygons(const std::vector<GraphicsVertex> &vertices,
