@@ -2382,11 +2382,11 @@ auto System::layout_node(Node &node,
 		}
 	}
 
-	node.content_width {
+	node.content_width = {
 		is_row ? content_main_max + node.padding_left + node.padding_right
 		       : cross_cursor + node.padding_left + node.padding_right,
 	};
-	node.content_height {
+	node.content_height = {
 		is_row ? cross_cursor + node.padding_top + node.padding_bottom
 		       : content_main_max + node.padding_top + node.padding_bottom,
 	};
