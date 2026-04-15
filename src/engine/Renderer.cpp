@@ -26,6 +26,7 @@ namespace
 constexpr size_t MIN_BATCH_VERTEX_CAPACITY { 256 };
 constexpr size_t MIN_BATCH_INDEX_CAPACITY { 384 };
 constexpr int FONT_ATLAS_DIMENSION { 512 };
+constexpr uint32_t WHITE_TEXEL { 0xFFFFFFFFu };
 constexpr size_t SHAPED_LINE_CACHE_MAX { 1024 };
 
 auto grow_capacity(size_t const current, size_t const required) -> size_t
@@ -207,6 +208,29 @@ auto wrap_line_words(std::string_view const line,
 
 } // namespace
 
+auto Renderer::ensure_font_atlas(Font const &font) -> void
+{
+	if (font.atlas.width > 0 && font.atlas.height > 0) {
+		if (!font.atlas.data.empty()) {
+			font.atlas.data[0] = 0xFFFFFFFFu;
+		}
+		return;
+	}
+
+	font.atlas.width = FONT_ATLAS_DIMENSION;
+	font.atlas.height = FONT_ATLAS_DIMENSION;
+	font.atlas.content_width = FONT_ATLAS_DIMENSION;
+	font.atlas.content_height = FONT_ATLAS_DIMENSION;
+	font.atlas.data.assign(static_cast<size_t>(FONT_ATLAS_DIMENSION)
+	        * static_cast<size_t>(FONT_ATLAS_DIMENSION),
+	    0);
+	font.atlas.data[0] = WHITE_TEXEL;
+	font.atlas_pen_x = 1;
+	font.atlas_pen_y = 1;
+	font.atlas_row_height = 0;
+	font.atlas.mark_dirty();
+}
+
 auto Renderer::ensure_glyph(
     Font const &font, FontShapeCache &shape_cache, uint32_t const glyph_id)
     -> Font::Glyph const *
@@ -225,18 +249,7 @@ auto Renderer::ensure_glyph(
 	}
 	auto const *info { &shape_cache.stb_info };
 
-	if (font.atlas.width <= 0 || font.atlas.height <= 0) {
-		font.atlas.width = FONT_ATLAS_DIMENSION;
-		font.atlas.height = FONT_ATLAS_DIMENSION;
-		font.atlas.content_width = FONT_ATLAS_DIMENSION;
-		font.atlas.content_height = FONT_ATLAS_DIMENSION;
-		font.atlas.data.assign(static_cast<size_t>(FONT_ATLAS_DIMENSION)
-		        * static_cast<size_t>(FONT_ATLAS_DIMENSION),
-		    0);
-		font.atlas_pen_x = 1;
-		font.atlas_pen_y = 1;
-		font.atlas_row_height = 0;
-	}
+	ensure_font_atlas(font);
 
 	auto const scale { shape_cache.atlas_scale };
 	int x0 {};
@@ -538,6 +551,57 @@ auto Renderer::find_font_shape_cache(void const *shaping_font) const
 	return { nullptr, nullptr };
 }
 
+auto Renderer::find_font_by_atlas(Texture const *const texture) const
+    -> Font const *
+{
+	if (texture == nullptr) {
+		return nullptr;
+	}
+
+	for (auto const &[handle_id, _] : m_font_shape_cache) {
+		auto const *font { m_assets.font(FontHandle { handle_id }) };
+		if (font != nullptr && &font->atlas == texture) {
+			return font;
+		}
+	}
+
+	auto const active_handle { m_assets.active_font_handle() };
+	auto const *active_font { m_assets.font(active_handle) };
+	if (active_font != nullptr && &active_font->atlas == texture) {
+		return active_font;
+	}
+
+	return nullptr;
+}
+
+auto Renderer::solid_batch_texture() -> Texture const *
+{
+	if (m_batch_texture != nullptr) {
+		auto const *font { find_font_by_atlas(m_batch_texture) };
+		if (font != nullptr) {
+			ensure_font_atlas(*font);
+			return &font->atlas;
+		}
+	}
+
+	auto const active_handle { m_assets.active_font_handle() };
+	auto const *active_font { m_assets.font(active_handle) };
+	if (active_font == nullptr) {
+		return nullptr;
+	}
+
+	ensure_font_atlas(*active_font);
+	return &active_font->atlas;
+}
+
+auto Renderer::white_atlas_src() -> Rect<>
+{
+	return Rect<> {
+		.position = smath::Vec2 { 0.0f, 0.0f },
+		.size = smath::Vec2 { 1.0f, 1.0f },
+	};
+}
+
 auto Renderer::start_frame() -> void
 {
 	Platform::renderer_begin_frame();
@@ -569,11 +633,8 @@ auto Renderer::draw_rectangle(
     smath::Vec2 const position, smath::Vec2 const size, smath::Vec4 const color)
     -> void
 {
-	push_quad(nullptr,
-	    Rect<> {
-	        .position = smath::Vec2 { 0.0f, 0.0f },
-	        .size = smath::Vec2 { 1.0f, 1.0f },
-	    },
+	push_quad(solid_batch_texture(),
+	    white_atlas_src(),
 	    Rect<> { .position = position, .size = size },
 	    color);
 }
@@ -595,11 +656,16 @@ auto Renderer::draw_line(smath::Vec2 const start,
 		return;
 	}
 
-	if (m_batch_texture != nullptr) {
+	auto const *texture { solid_batch_texture() };
+	if (texture == nullptr) {
 		flush_batch();
 		m_batch_texture = nullptr;
+		return;
 	}
-
+	if (m_batch_texture != texture) {
+		flush_batch();
+		m_batch_texture = texture;
+	}
 	ensure_batch_capacity(4, 6);
 	auto const color_u32 { smath::pack_unorm4x8(color) };
 	auto const base_index { static_cast<uint16_t>(m_batch_vertices.size()) };
@@ -616,34 +682,37 @@ auto Renderer::draw_line(smath::Vec2 const start,
 	auto const p1 { smath::Vec2 { end.x() + nx, end.y() + ny } };
 	auto const p2 { smath::Vec2 { start.x() - nx, start.y() - ny } };
 	auto const p3 { smath::Vec2 { end.x() - nx, end.y() - ny } };
+	auto const src { white_atlas_src() };
+	auto const u0 { src.position.x() };
+	auto const v0 { src.position.y() };
 
 	vertices[0] = detail::GraphicsVertex {
-		.u = 0.0f,
-		.v = 0.0f,
+		.u = u0,
+		.v = v0,
 		.color = color_u32,
 		.x = p0.x(),
 		.y = p0.y(),
 		.z = 0.0f,
 	};
 	vertices[1] = detail::GraphicsVertex {
-		.u = 0.0f,
-		.v = 0.0f,
+		.u = u0,
+		.v = v0,
 		.color = color_u32,
 		.x = p1.x(),
 		.y = p1.y(),
 		.z = 0.0f,
 	};
 	vertices[2] = detail::GraphicsVertex {
-		.u = 0.0f,
-		.v = 0.0f,
+		.u = u0,
+		.v = v0,
 		.color = color_u32,
 		.x = p2.x(),
 		.y = p2.y(),
 		.z = 0.0f,
 	};
 	vertices[3] = detail::GraphicsVertex {
-		.u = 0.0f,
-		.v = 0.0f,
+		.u = u0,
+		.v = v0,
 		.color = color_u32,
 		.x = p3.x(),
 		.y = p3.y(),
@@ -683,9 +752,15 @@ auto Renderer::draw_circle_sector(smath::Vec2 const center,
 		return;
 	}
 
-	if (m_batch_texture != nullptr) {
+	auto const *texture { solid_batch_texture() };
+	if (texture == nullptr) {
 		flush_batch();
 		m_batch_texture = nullptr;
+		return;
+	}
+	if (m_batch_texture != texture) {
+		flush_batch();
+		m_batch_texture = texture;
 	}
 
 	auto const seg_count { std::max(3, segments) };
@@ -707,10 +782,13 @@ auto Renderer::draw_circle_sector(smath::Vec2 const center,
 	auto const index_start { m_batch_indices.size() };
 	m_batch_indices.resize(index_start + needed_indices);
 	auto *const indices { m_batch_indices.data() + index_start };
+	auto const src { white_atlas_src() };
+	auto const u0 { src.position.x() };
+	auto const v0 { src.position.y() };
 
 	vertices[0] = detail::GraphicsVertex {
-		.u = 0.0f,
-		.v = 0.0f,
+		.u = u0,
+		.v = v0,
 		.color = color_u32,
 		.x = center.x(),
 		.y = center.y(),
@@ -725,8 +803,8 @@ auto Renderer::draw_circle_sector(smath::Vec2 const center,
 		auto const x { center.x() + std::cos(angle) * radius };
 		auto const y { center.y() + std::sin(angle) * radius };
 		vertices[static_cast<size_t>(i) + 1] = detail::GraphicsVertex {
-			.u = 0.0f,
-			.v = 0.0f,
+			.u = u0,
+			.v = v0,
 			.color = color_u32,
 			.x = x,
 			.y = y,
