@@ -593,6 +593,14 @@ auto Application::on_update(float const dt) -> void
 		    Engine::Color::BLACK);
 	}
 
+	renderer().draw_text("日本語が好き",
+	    Engine::Rect<> {
+	        smath::Vec2 { 0.0f, 50.0f },
+	        smath::Vec2 { 200.0f, 200.0f },
+	    },
+	    16.0f,
+	    Engine::Color::RED);
+
 	renderer().draw_text("asdfasdf87asdfas8d7f5sadf5456asd4f6as79d",
 	    Engine::Rect<> {
 	        smath::Vec2 { 0.0f, 100.0f },
