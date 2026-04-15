@@ -78,13 +78,32 @@ struct DrawCommand
 	};
 	struct Text
 	{
-		std::string value {};
+		using Value = std::variant<std::string_view, std::string>;
+
+		Value value { std::string_view {} };
 		Engine::Rect<> box {};
 		float size { 16.0f };
 		smath::Vec4 color {};
 		TextAlignX align_x { TextAlignX::Left };
 		TextAlignY align_y { TextAlignY::Top };
 		bool wrap { true };
+
+		static auto borrowed(std::string_view const value) -> Value
+		{
+			return Value { value };
+		}
+
+		static auto owned(std::string value) -> Value
+		{
+			return Value { std::move(value) };
+		}
+
+		auto value_view() const -> std::string_view
+		{
+			return std::visit(
+			    [](auto const &value) -> std::string_view { return value; },
+			    this->value);
+		}
 	};
 	struct Image
 	{

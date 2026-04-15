@@ -365,23 +365,23 @@ auto Application::on_update(float const dt) -> void
 				        payload.segments);
 			    } else if constexpr (std::is_same_v<T,
 			                             Gui::DrawCommand::Text>) {
-				    auto const align_x { payload.align_x
-					            == Gui::TextAlignX::Center
-					        ? Engine::TextAlignX::Center
-					        : (payload.align_x == Gui::TextAlignX::Right
-					                  ? Engine::TextAlignX::Right
-					                  : Engine::TextAlignX::Left) };
-				    auto const align_y { payload.align_y
-					            == Gui::TextAlignY::Center
-					        ? Engine::TextAlignY::Center
-					        : (payload.align_y == Gui::TextAlignY::Bottom
-					                  ? Engine::TextAlignY::Bottom
-					                  : Engine::TextAlignY::Top) };
-				    renderer().draw_text(payload.value,
-				        payload.box,
-				        payload.size,
-				        payload.color,
-				        align_x,
+			    auto const align_x { payload.align_x
+				            == Gui::TextAlignX::Center
+				        ? Engine::TextAlignX::Center
+				        : (payload.align_x == Gui::TextAlignX::Right
+				                  ? Engine::TextAlignX::Right
+				                  : Engine::TextAlignX::Left) };
+			    auto const align_y { payload.align_y
+				            == Gui::TextAlignY::Center
+				        ? Engine::TextAlignY::Center
+				        : (payload.align_y == Gui::TextAlignY::Bottom
+				                  ? Engine::TextAlignY::Bottom
+				                  : Engine::TextAlignY::Top) };
+			    renderer().draw_text(payload.value_view(),
+			        payload.box,
+			        payload.size,
+			        payload.color,
+			        align_x,
 				        align_y,
 				        std::nullopt,
 				        payload.wrap);
