@@ -99,15 +99,20 @@ auto append_hard_wrapped_word(std::vector<std::string> &out,
 }
 
 template<typename ShapeFn>
-auto wrap_line_words(
-    std::string_view line, float max_width, ShapeFn const &shape_fn)
-    -> std::vector<std::string>
+auto wrap_line_words(std::vector<std::string> &out,
+    std::string_view const line,
+    float const max_width,
+    ShapeFn const &shape_fn) -> void
 {
+	auto const out_start { out.size() };
+
 	if (line.empty()) {
-		return { "" };
+		out.emplace_back();
+		return;
 	}
 	if (max_width <= 0.0f) {
-		return { std::string(line) };
+		out.emplace_back(line);
+		return;
 	}
 
 	auto is_space = [](unsigned char c) {
@@ -117,9 +122,7 @@ auto wrap_line_words(
 
 	auto const space_width = shaped_line_width(" ", shape_fn);
 
-	static std::vector<std::string> lines;
-	lines.clear();
-	lines.reserve(line.size() / 16 + 1);
+	out.reserve(out.size() + line.size() / 16 + 1);
 
 	std::string current_line;
 	current_line.reserve(line.size());
@@ -147,8 +150,7 @@ auto wrap_line_words(
 
 		if (current_line.empty()) {
 			if (word_width > max_width) {
-				append_hard_wrapped_word(
-				    lines, std::string(word), max_width, shape_fn);
+				append_hard_wrapped_word(out, word, max_width, shape_fn);
 			} else {
 				current_line.append(word.data(), word.size());
 				current_width = word_width;
@@ -158,12 +160,11 @@ auto wrap_line_words(
 
 		float const candidate_width = current_width + space_width + word_width;
 		if (candidate_width > max_width) {
-			lines.push_back(current_line);
+			out.push_back(current_line);
 			current_line.clear();
 
 			if (word_width > max_width) {
-				append_hard_wrapped_word(
-				    lines, std::string(word), max_width, shape_fn);
+				append_hard_wrapped_word(out, word, max_width, shape_fn);
 				current_width = 0.0f;
 			} else {
 				current_line.append(word.data(), word.size());
@@ -178,13 +179,11 @@ auto wrap_line_words(
 	}
 
 	if (!current_line.empty()) {
-		lines.push_back(std::move(current_line));
+		out.push_back(std::move(current_line));
 	}
-	if (lines.empty()) {
-		lines.emplace_back();
+	if (out.size() == out_start) {
+		out.emplace_back();
 	}
-
-	return lines;
 }
 
 auto float_bits(float const value) -> uint32_t
@@ -364,35 +363,36 @@ auto Renderer::ensure_shape(FontHandle const handle, Font const &font)
 	return &entry;
 }
 
-auto Renderer::shape_line(FontHandle const handle,
+auto Renderer::shape_line_entry(FontHandle const handle,
     Font const &font,
     std::string_view const text,
-    float const size_px) -> std::vector<ShapedGlyph> const &
+    float const size_px) -> ShapeCache::Entry const *
 {
-	static std::vector<ShapedGlyph> const empty {};
 	if (text.empty() || font.ttf_data.empty()) {
-		return empty;
+		return nullptr;
 	}
 
-	ShapeCacheKey key {
+	ShapeCache::LookupKey lookup_key {
 		.font_id = handle.id,
 		.size_bits = float_bits(size_px),
-		.text = std::string(text),
+		.text = text,
 	};
-	auto const cached_it { m_shaped_line_cache.find(key) };
+	auto const cached_it { m_shaped_line_cache.find(lookup_key) };
 	if (cached_it != m_shaped_line_cache.end()) {
 		m_shaped_line_lru.splice(m_shaped_line_lru.end(),
 		    m_shaped_line_lru,
 		    cached_it->second.lru_it);
-		return cached_it->second.glyphs;
+		return &cached_it->second;
 	}
 
 	auto *cache { ensure_shape(handle, font) };
 	if (cache == nullptr || cache->context == nullptr) {
-		return empty;
+		return nullptr;
 	}
 	auto *ctx { static_cast<kbts_shape_context *>(cache->context) };
 	std::vector<ShapedGlyph> shaped {};
+	shaped.reserve(text.size());
+	float width {};
 
 	kbts_ShapeBegin(ctx, KBTS_DIRECTION_DONT_KNOW, KBTS_LANGUAGE_DONT_KNOW);
 	kbts_ShapeUtf8(ctx,
@@ -408,21 +408,30 @@ auto Renderer::shape_line(FontHandle const handle,
 	while (kbts_ShapeRun(ctx, &run) != 0) {
 		kbts_glyph *glyph {};
 		while (kbts_GlyphIteratorNext(&run.Glyphs, &glyph) != 0) {
+			auto const x_advance {
+				static_cast<float>(glyph->AdvanceX) * scale,
+			};
 			shaped.push_back(ShapedGlyph {
 			    .glyph_id = glyph->Id,
-			    .x_advance = static_cast<float>(glyph->AdvanceX) * scale,
+			    .x_advance = x_advance,
 			    .y_advance = static_cast<float>(glyph->AdvanceY) * scale,
 			    .x_offset = static_cast<float>(glyph->OffsetX) * scale,
 			    .y_offset = static_cast<float>(glyph->OffsetY) * scale,
 			});
+			width += x_advance;
 		}
 	}
 
-	m_shaped_line_lru.push_back(std::move(key));
+	m_shaped_line_lru.emplace_back(ShapeCache::Key {
+	    .font_id = lookup_key.font_id,
+	    .size_bits = lookup_key.size_bits,
+	    .text = std::string(text),
+	});
 	auto const lru_it { std::prev(m_shaped_line_lru.end()) };
 	auto [it, _] { m_shaped_line_cache.emplace(*lru_it,
-		Renderer::ShapeCacheEntry {
+		Renderer::ShapeCache::Entry {
 		    .glyphs = std::move(shaped),
+		    .width = width,
 		    .lru_it = lru_it,
 		}) };
 	bool inserted_entry_erased {};
@@ -436,9 +445,22 @@ auto Renderer::shape_line(FontHandle const handle,
 		m_shaped_line_cache.erase(oldest);
 	}
 	if (inserted_entry_erased || it == m_shaped_line_cache.end()) {
+		return nullptr;
+	}
+	return &it->second;
+}
+
+auto Renderer::shape_line(FontHandle const handle,
+    Font const &font,
+    std::string_view const text,
+    float const size_px) -> std::vector<ShapedGlyph> const &
+{
+	static std::vector<ShapedGlyph> const empty {};
+	auto const *entry { shape_line_entry(handle, font, text, size_px) };
+	if (entry == nullptr) {
 		return empty;
 	}
-	return it->second.glyphs;
+	return entry->glyphs;
 }
 
 auto Renderer::destroy_shape_caches() -> void
@@ -747,66 +769,55 @@ auto Renderer::draw_text(std::string_view const text,
 		}
 	};
 
-	static std::vector<std::string> lines {};
-	lines.clear();
-
-	if (!wrap) {
-		size_t line_start {};
-		while (line_start <= text.size()) {
-			auto const line_end { text.find('\n', line_start) };
-			auto const len { line_end == std::string_view::npos
-				    ? text.size() - line_start
-				    : line_end - line_start };
-			lines.emplace_back(text.substr(line_start, len));
-
-			if (line_end == std::string_view::npos)
-				break;
-			line_start = line_end + 1;
-		}
-	} else {
-		size_t line_start {};
-		while (line_start <= text.size()) {
-			auto const line_end { text.find('\n', line_start) };
-			auto const len { line_end == std::string_view::npos
-				    ? text.size() - line_start
-				    : line_end - line_start };
-			auto const source_line { text.substr(line_start, len) };
-
-			auto wrapped { wrap_line_words(
-				source_line, box.size.x(), shape_fn) };
-			for (auto &seg : wrapped) {
-				lines.push_back(std::move(seg));
-			}
-
-			if (line_end == std::string_view::npos)
-				break;
-			line_start = line_end + 1;
-		}
-	}
-
-	if (lines.empty()) {
-		lines.emplace_back();
-	}
-
+	static std::vector<std::string> wrapped_lines {};
+	wrapped_lines.clear();
 	static std::vector<TextLayoutLine> layout_lines {};
 	layout_lines.clear();
+	static std::vector<ShapedGlyph> const empty_glyphs {};
 
-	for (auto const &line : lines) {
-		TextLayoutLine layout_line {};
-		layout_line.text = line;
-		layout_line.glyphs = shape_line(handle, *font, layout_line.text, size);
+	auto append_layout_line {
+		[&](std::string_view const line) {
+		    auto const *entry { shape_line_entry(handle, *font, line, size) };
+		    layout_lines.push_back(TextLayoutLine {
+		        .glyphs = entry != nullptr ? &entry->glyphs : &empty_glyphs,
+		        .width = entry != nullptr ? entry->width : 0.0f,
+		    });
+		},
+	};
 
-		float width {};
-		for (auto const &g : layout_line.glyphs) {
-			width += g.x_advance;
+	size_t line_start {};
+	while (line_start <= text.size()) {
+		auto const line_end { text.find('\n', line_start) };
+		auto const len { line_end == std::string_view::npos
+			    ? text.size() - line_start
+			    : line_end - line_start };
+		auto const source_line { text.substr(line_start, len) };
+
+		if (!wrap) {
+			append_layout_line(source_line);
+		} else {
+			auto const wrapped_start { wrapped_lines.size() };
+			wrap_line_words(wrapped_lines, source_line, box.size.x(), shape_fn);
+			for (size_t i { wrapped_start }; i < wrapped_lines.size(); ++i) {
+				append_layout_line(wrapped_lines[i]);
+			}
 		}
-		layout_line.width = width;
 
-		layout_lines.push_back(std::move(layout_line));
+		if (line_end == std::string_view::npos) {
+			break;
+		}
+		line_start = line_end + 1;
+	}
+
+	if (layout_lines.empty()) {
+		layout_lines.push_back(TextLayoutLine {
+		    .glyphs = &empty_glyphs,
+		    .width = 0.0f,
+		});
 	}
 
 	auto const total_height { (asc_px + desc_px)
-		+ std::max(0.0f, static_cast<float>(lines.size() - 1)) * lh };
+		+ std::max(0.0f, static_cast<float>(layout_lines.size() - 1)) * lh };
 
 	auto start_y { box.position.y() };
 	if (align_y == TextAlignY::Center) {
@@ -817,7 +828,7 @@ auto Renderer::draw_text(std::string_view const text,
 
 	for (size_t i {}; i < layout_lines.size(); ++i) {
 		auto const &layout_line { layout_lines[i] };
-		auto const &shaped { layout_line.glyphs };
+		auto const &shaped { *layout_line.glyphs };
 		auto const line_width { layout_line.width };
 
 		auto pen_x { box.position.x() };
@@ -908,13 +919,8 @@ auto Renderer::measure_text(std::string_view const text,
 			    ? text.size() - line_start
 			    : line_end - line_start };
 		auto const line_text { text.substr(line_start, segment_length) };
-		auto const &shaped { shape_line(handle, *font, line_text, size) };
-
-		float width {};
-		for (auto const &glyph : shaped) {
-			width += glyph.x_advance;
-		}
-		max_width = std::max(max_width, width);
+		auto const *entry { shape_line_entry(handle, *font, line_text, size) };
+		max_width = std::max(max_width, entry != nullptr ? entry->width : 0.0f);
 
 		if (line_end == std::string_view::npos) {
 			break;

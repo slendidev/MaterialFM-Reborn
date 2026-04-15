@@ -115,45 +115,124 @@ private:
 		float atlas_scale { 0.0f };
 	};
 
-	struct ShapeCacheKey
+	struct ShapeCache
 	{
-		uint32_t font_id {};
-		uint32_t size_bits {};
-		std::string text {};
-
-		auto operator==(ShapeCacheKey const &other) const -> bool
+		struct LookupKey
 		{
-			return font_id == other.font_id && size_bits == other.size_bits
-			    && text == other.text;
-		}
-	};
+			uint32_t font_id {};
+			uint32_t size_bits {};
+			std::string_view text {};
+		};
 
-	struct ShapeCacheKeyHash
-	{
-		auto operator()(ShapeCacheKey const &key) const noexcept -> size_t
+		struct Key
 		{
-			auto seed { std::hash<uint32_t> {}(key.font_id) };
-			seed ^= std::hash<uint32_t> {}(key.size_bits) + 0x9e3779b9u
-			    + (seed << 6) + (seed >> 2);
-			seed ^= std::hash<std::string> {}(key.text) + 0x9e3779b9u
-			    + (seed << 6) + (seed >> 2);
-			return seed;
-		}
-	};
+			uint32_t font_id {};
+			uint32_t size_bits {};
+			std::string text {};
 
-	struct ShapeCacheEntry
-	{
-		std::vector<ShapedGlyph> glyphs {};
-		std::list<ShapeCacheKey>::iterator lru_it {};
+			struct Hash
+			{
+				using is_transparent = void;
+
+				static auto hash_parts(uint32_t const font_id,
+				    uint32_t const size_bits,
+				    std::string_view const text) noexcept -> size_t
+				{
+					auto seed { std::hash<uint32_t> {}(font_id) };
+					seed ^= std::hash<uint32_t> {}(size_bits) + 0x9e3779b9u
+					    + (seed << 6) + (seed >> 2);
+					seed ^= std::hash<std::string_view> {}(text) + 0x9e3779b9u
+					    + (seed << 6) + (seed >> 2);
+					return seed;
+				}
+
+				auto operator()(ShapeCache::Key const &key) const noexcept
+				    -> size_t
+				{
+					return hash_parts(key.font_id, key.size_bits, key.text);
+				}
+
+				auto operator()(ShapeCache::LookupKey const &key) const noexcept
+				    -> size_t
+				{
+					return hash_parts(key.font_id, key.size_bits, key.text);
+				}
+			};
+
+			struct Equal
+			{
+				using is_transparent = void;
+
+				static auto equals(uint32_t const lhs_font_id,
+				    uint32_t const lhs_size_bits,
+				    std::string_view const lhs_text,
+				    uint32_t const rhs_font_id,
+				    uint32_t const rhs_size_bits,
+				    std::string_view const rhs_text) noexcept -> bool
+				{
+					return lhs_font_id == rhs_font_id
+					    && lhs_size_bits == rhs_size_bits
+					    && lhs_text == rhs_text;
+				}
+
+				auto operator()(ShapeCache::Key const &lhs,
+				    ShapeCache::Key const &rhs) const noexcept -> bool
+				{
+					return equals(lhs.font_id,
+					    lhs.size_bits,
+					    lhs.text,
+					    rhs.font_id,
+					    rhs.size_bits,
+					    rhs.text);
+				}
+
+				auto operator()(ShapeCache::Key const &lhs,
+				    ShapeCache::LookupKey const &rhs) const noexcept -> bool
+				{
+					return equals(lhs.font_id,
+					    lhs.size_bits,
+					    lhs.text,
+					    rhs.font_id,
+					    rhs.size_bits,
+					    rhs.text);
+				}
+
+				auto operator()(ShapeCache::LookupKey const &lhs,
+				    ShapeCache::Key const &rhs) const noexcept -> bool
+				{
+					return equals(lhs.font_id,
+					    lhs.size_bits,
+					    lhs.text,
+					    rhs.font_id,
+					    rhs.size_bits,
+					    rhs.text);
+				}
+			};
+
+			auto operator==(ShapeCache::Key const &other) const -> bool
+			{
+				return font_id == other.font_id && size_bits == other.size_bits
+				    && text == other.text;
+			}
+		};
+
+		struct Entry
+		{
+			std::vector<ShapedGlyph> glyphs {};
+			float width {};
+			std::list<ShapeCache::Key>::iterator lru_it {};
+		};
 	};
 
 	struct TextLayoutLine
 	{
-		std::string text {};
-		std::vector<ShapedGlyph> glyphs {};
+		std::vector<ShapedGlyph> const *glyphs {};
 		float width {};
 	};
 
+	auto shape_line_entry(
+	    FontHandle handle, Font const &font, std::string_view text, float size)
+	    -> ShapeCache::Entry const *;
 	auto shape_line(
 	    FontHandle handle, Font const &font, std::string_view text, float size)
 	    -> std::vector<ShapedGlyph> const &;
@@ -175,9 +254,12 @@ private:
 	std::vector<uint16_t> m_batch_indices {};
 	Texture const *m_batch_texture {};
 	std::unordered_map<uint32_t, FontShapeCache> m_font_shape_cache {};
-	std::unordered_map<ShapeCacheKey, ShapeCacheEntry, ShapeCacheKeyHash>
+	std::unordered_map<ShapeCache::Key,
+	    ShapeCache::Entry,
+	    ShapeCache::Key::Hash,
+	    ShapeCache::Key::Equal>
 	    m_shaped_line_cache {};
-	std::list<ShapeCacheKey> m_shaped_line_lru {};
+	std::list<ShapeCache::Key> m_shaped_line_lru {};
 	AssetManager &m_assets;
 	bool m_frame_started {};
 };
