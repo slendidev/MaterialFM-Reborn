@@ -1,6 +1,7 @@
 #include "engine/Renderer.h"
 
 #include <algorithm>
+#include <bit>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -200,13 +201,6 @@ auto wrap_line_words(std::string_view const line,
 	}
 }
 
-auto float_bits(float const value) -> uint32_t
-{
-	uint32_t bits {};
-	std::memcpy(&bits, &value, sizeof(bits));
-	return bits;
-}
-
 } // namespace
 
 auto Renderer::ensure_glyph(
@@ -388,7 +382,7 @@ auto Renderer::shape_line_entry(FontHandle const handle,
 
 	ShapeCacheLookupKey lookup_key {
 		.font_id = handle.id,
-		.size_bits = float_bits(size_px),
+		.size_bits = std::bit_cast<uint32_t>(size_px),
 		.text = text,
 	};
 	auto const cached_it { m_shaped_line_cache.find(lookup_key) };
