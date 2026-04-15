@@ -574,7 +574,6 @@ auto Application::on_update(float const dt) -> void
 			}
 
 			if (!bar_vertices.empty() && !bar_indices.empty()) {
-				renderer().flush_batch();
 				renderer().draw_polygons(bar_vertices, bar_indices);
 			}
 		}

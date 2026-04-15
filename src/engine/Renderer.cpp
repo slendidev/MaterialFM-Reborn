@@ -1184,15 +1184,48 @@ auto Renderer::push_quad(Texture const *const texture,
 void Renderer::draw_polygons(const std::vector<GraphicsVertex> &vertices,
     const std::vector<uint16_t> &indices)
 {
-	if (m_batch_texture != nullptr) {
-		flush_batch();
-		m_batch_texture = nullptr;
+	if (vertices.empty() || indices.empty()) {
+		return;
 	}
 
-	if (!vertices.empty() && !indices.empty()) {
-		Platform::renderer_submit_batch(nullptr,
-		    std::span<GraphicsVertex const>(vertices.data(), vertices.size()),
-		    std::span<uint16_t const>(indices.data(), indices.size()));
+	auto const *texture { solid_batch_texture() };
+	if (texture == nullptr) {
+		flush_batch();
+		m_batch_texture = nullptr;
+		return;
+	}
+
+	if (m_batch_texture != texture) {
+		flush_batch();
+		m_batch_texture = texture;
+	}
+
+	if (m_batch_vertices.size() + vertices.size()
+	    > static_cast<size_t>(std::numeric_limits<uint16_t>::max())) {
+		flush_batch();
+	}
+
+	ensure_batch_capacity(vertices.size(), indices.size());
+
+	auto const base_index { static_cast<uint16_t>(m_batch_vertices.size()) };
+	auto const vertex_start { m_batch_vertices.size() };
+	m_batch_vertices.resize(vertex_start + vertices.size());
+
+	auto const src { white_atlas_src() };
+	auto const u0 { src.position.x() };
+	auto const v0 { src.position.y() };
+
+	for (size_t i = 0; i < vertices.size(); ++i) {
+		m_batch_vertices[vertex_start + i] = vertices[i];
+		m_batch_vertices[vertex_start + i].u = u0;
+		m_batch_vertices[vertex_start + i].v = v0;
+	}
+
+	auto const index_start { m_batch_indices.size() };
+	m_batch_indices.resize(index_start + indices.size());
+	for (size_t i = 0; i < indices.size(); ++i) {
+		m_batch_indices[index_start + i]
+		    = static_cast<uint16_t>(base_index + indices[i]);
 	}
 }
 
