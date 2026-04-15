@@ -217,6 +217,10 @@ auto Renderer::ensure_glyph(
 	}
 
 	if (!ensure_stb_font_static(shape_cache, font)) {
+		printf("[TEXT] ensure_glyph: stb init failed for glyph %lu (font path: "
+		       "%s)\n",
+		    static_cast<unsigned long>(glyph_id),
+		    font.path.c_str());
 		return nullptr;
 	}
 	auto const *info { &shape_cache.stb_info };
@@ -267,6 +271,9 @@ auto Renderer::ensure_glyph(
 		font.atlas_row_height = 0;
 	}
 	if (font.atlas_pen_y + height + padding >= font.atlas.content_height) {
+		printf("[TEXT] ensure_glyph: atlas full for glyph %lu (font: %s)\n",
+		    static_cast<unsigned long>(glyph_id),
+		    font.path.c_str());
 		return nullptr;
 	}
 
@@ -313,6 +320,14 @@ auto Renderer::ensure_glyph(
 		    .x1 = x1,
 		    .y1 = y1,
 		}) };
+	printf("[TEXT] ensure_glyph: added glyph %lu to atlas at (%d,%d) %dx%d "
+	       "(font: %s)\n",
+	    static_cast<unsigned long>(glyph_id),
+	    dst_x,
+	    dst_y,
+	    width,
+	    height,
+	    font.path.c_str());
 	return &it->second;
 }
 
@@ -413,22 +428,25 @@ auto Renderer::shape_line_entry(FontHandle const handle,
 	    KBTS_USER_ID_GENERATION_MODE_CODEPOINT_INDEX);
 	kbts_ShapeEnd(ctx);
 
-	auto const scale {
-		size_px / static_cast<float>(std::max(font.units_per_em, 1)),
-	};
 	kbts_run run {};
 	while (kbts_ShapeRun(ctx, &run) != 0) {
+		auto [run_font, _] = find_font_shape_cache(run.Font);
+		auto const run_upem = static_cast<float>(std::max(
+		    run_font != nullptr ? run_font->units_per_em : font.units_per_em,
+		    1));
+		auto const run_scale = size_px / run_upem;
+
 		kbts_glyph *glyph {};
 		while (kbts_GlyphIteratorNext(&run.Glyphs, &glyph) != 0) {
-			auto const x_advance {
-				static_cast<float>(glyph->AdvanceX) * scale,
-			};
+			auto const x_advance
+			    = static_cast<float>(glyph->AdvanceX) * run_scale;
 			shaped.push_back(ShapedGlyph {
 			    .glyph_id = glyph->Id,
+			    .shaping_font = run.Font,
 			    .x_advance = x_advance,
-			    .y_advance = static_cast<float>(glyph->AdvanceY) * scale,
-			    .x_offset = static_cast<float>(glyph->OffsetX) * scale,
-			    .y_offset = static_cast<float>(glyph->OffsetY) * scale,
+			    .y_advance = static_cast<float>(glyph->AdvanceY) * run_scale,
+			    .x_offset = static_cast<float>(glyph->OffsetX) * run_scale,
+			    .y_offset = static_cast<float>(glyph->OffsetY) * run_scale,
 			});
 			width += x_advance;
 		}
@@ -504,6 +522,20 @@ auto Renderer::ensure_stb_font_static(FontShapeCache &cache, Font const &font)
 	    = stbtt_ScaleForPixelHeight(&cache.stb_info, font.atlas_base_size_px);
 	cache.stb_ready = true;
 	return true;
+}
+
+auto Renderer::find_font_shape_cache(void const *shaping_font) const
+    -> std::pair<Font const *, FontShapeCache *>
+{
+	for (auto &[handle_id, cache] : m_font_shape_cache) {
+		if (cache.font == shaping_font) {
+			auto const *engine_font { m_assets.font(FontHandle { handle_id }) };
+			if (engine_font != nullptr) {
+				return { engine_font, const_cast<FontShapeCache *>(&cache) };
+			}
+		}
+	}
+	return { nullptr, nullptr };
 }
 
 auto Renderer::start_frame() -> void
@@ -851,15 +883,27 @@ auto Renderer::draw_text(std::string_view const text,
 		auto pen_y { start_y + asc_px + static_cast<float>(i) * lh };
 
 		for (auto const &glyph : shaped) {
+			auto const *glyph_font { font };
+			auto *glyph_shape_cache { font_shape_cache };
+			auto glyph_atlas_scale { atlas_scale };
+
+			auto [resolved_font,
+			    resolved_cache] { find_font_shape_cache(glyph.shaping_font) };
+			if (resolved_font != nullptr && resolved_cache != nullptr) {
+				glyph_font = resolved_font;
+				glyph_shape_cache = resolved_cache;
+				glyph_atlas_scale = size / glyph_font->atlas_base_size_px;
+			}
+
 			auto const *cached { ensure_glyph(
-				*font, *font_shape_cache, glyph.glyph_id) };
+				*glyph_font, *glyph_shape_cache, glyph.glyph_id) };
 			if (cached && cached->u1 > cached->u0 && cached->v1 > cached->v0) {
 				auto const x { pen_x + glyph.x_offset
-					+ static_cast<float>(cached->x0) * atlas_scale };
+					+ static_cast<float>(cached->x0) * glyph_atlas_scale };
 				auto const y { pen_y + glyph.y_offset
-					+ static_cast<float>(cached->y0) * atlas_scale };
+					+ static_cast<float>(cached->y0) * glyph_atlas_scale };
 
-				push_quad(&font->atlas,
+				push_quad(&glyph_font->atlas,
 					Rect<> {
 						.position = smath::Vec2 { cached->u0, cached->v0 },
 						.size = smath::Vec2 {
@@ -870,8 +914,8 @@ auto Renderer::draw_text(std::string_view const text,
 					Rect<> {
 						.position = smath::Vec2 { x, y },
 						.size = smath::Vec2 {
-							(cached->u1 - cached->u0) * atlas_scale,
-							(cached->v1 - cached->v0) * atlas_scale,
+							(cached->u1 - cached->u0) * glyph_atlas_scale,
+							(cached->v1 - cached->v0) * glyph_atlas_scale,
 						},
 					},
 					color);

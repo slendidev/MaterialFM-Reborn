@@ -98,6 +98,8 @@ private:
 	struct ShapedGlyph
 	{
 		uint32_t glyph_id {};
+		void *shaping_font {}; // kbts_font* from the shaper run that produced
+		                       // this glyph
 		float x_advance {};
 		float y_advance {};
 		float x_offset {};
@@ -243,6 +245,9 @@ private:
 	static auto ensure_glyph(
 	    Font const &font, FontShapeCache &shape_cache, uint32_t const glyph_id)
 	    -> Font::Glyph const *;
+
+	auto find_font_shape_cache(void const *shaping_font) const
+	    -> std::pair<Font const *, FontShapeCache *>;
 
 	auto ensure_batch_capacity(size_t vertex_count, size_t index_count) -> void;
 	auto push_quad(Texture const *texture,

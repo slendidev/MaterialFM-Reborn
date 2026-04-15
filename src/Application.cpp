@@ -25,7 +25,7 @@ Application::Application()
 
 	auto const font_result {
 		assets().load_font_from_file(
-		    "ubuntu", "assets/Fonts/Ubuntu-Regular.ttf"),
+		    "ubuntu", "assets/Fonts/NotoSansJP-Regular.ttf"),
 	};
 	sassert(font_result == Engine::AssetError::Ok, "Failed to load font asset");
 	sassert(assets().set_active_font(assets().font_handle("ubuntu"))
@@ -598,7 +598,7 @@ auto Application::on_update(float const dt) -> void
 	        smath::Vec2 { 0.0f, 50.0f },
 	        smath::Vec2 { 200.0f, 200.0f },
 	    },
-	    16.0f,
+	    24.0f,
 	    Engine::Color::RED);
 
 	renderer().draw_text("asdfasdf87asdfas8d7f5sadf5456asd4f6as79d",
