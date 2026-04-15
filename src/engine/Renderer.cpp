@@ -26,7 +26,6 @@ namespace
 constexpr size_t MIN_BATCH_VERTEX_CAPACITY { 256 };
 constexpr size_t MIN_BATCH_INDEX_CAPACITY { 384 };
 constexpr int FONT_ATLAS_DIMENSION { 512 };
-constexpr uint32_t WHITE_TEXEL { 0xFFFFFFFFu };
 constexpr size_t SHAPED_LINE_CACHE_MAX { 1024 };
 
 auto grow_capacity(size_t const current, size_t const required) -> size_t
@@ -224,7 +223,7 @@ auto Renderer::ensure_font_atlas(Font const &font) -> void
 	font.atlas.data.assign(static_cast<size_t>(FONT_ATLAS_DIMENSION)
 	        * static_cast<size_t>(FONT_ATLAS_DIMENSION),
 	    0);
-	font.atlas.data[0] = WHITE_TEXEL;
+	font.atlas.data[0] = 0xFFFFFFFFu;
 	font.atlas_pen_x = 1;
 	font.atlas_pen_y = 1;
 	font.atlas_row_height = 0;
