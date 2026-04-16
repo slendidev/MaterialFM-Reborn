@@ -2,6 +2,6 @@
 
 int main(void)
 {
-	Application app {};
+	MaterialFM::Application app {};
 	app.run();
 }

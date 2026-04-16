@@ -249,7 +249,11 @@ auto sidebar(Context &ctx,
 	        .fill_color(fill)
 	        .build(),
 	    [&](Context &layer_ctx) {
-		    layer_ctx.flex(Gui::id("content"), options, fn);
+		    layer_ctx.scrollable(Gui::id("drawer_scrollable"),
+		        Gui::ScrollOptions::builder().build(),
+		        [&](Gui::Context &scroll) {
+			        scroll.flex(Gui::id("content"), options, fn);
+		        });
 	    });
 }
 

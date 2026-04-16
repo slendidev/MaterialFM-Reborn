@@ -19,11 +19,17 @@ include("${ENGINE_PLATFORM_DIR}/CMakeLists.txt")
 include(cmake/MCU.cmake)
 mcu_add_target(material-color-utilities)
 
+add_compile_options(
+	"$<$<AND:$<COMPILE_LANG_AND_ID:C,GNU>,$<VERSION_GREATER_EQUAL:$<C_COMPILER_VERSION>,15>>:-fdiagnostics-set-output=text:experimental-nesting=yes>"
+	"$<$<AND:$<COMPILE_LANG_AND_ID:CXX,GNU>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,15>>:-fdiagnostics-set-output=text:experimental-nesting=yes>"
+)
+
 #set(CMAKE_C_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -pg -g")
 #set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -pg -g")
 
 add_executable(${PROJECT_NAME}
 	src/main.cpp
+	src/IO.cpp
 	src/Application.cpp
 	src/gui/Theme.cpp
 	src/gui/Animation.cpp

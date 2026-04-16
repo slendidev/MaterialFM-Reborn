@@ -371,8 +371,9 @@ public:
 	    LayerStyle style,
 	    ComposeFn const &fn) -> void;
 	auto flex(Id key, FlexOptions const &options, ComposeFn const &fn) -> void;
-	auto scrollable(Id key, ScrollOptions const &options, ComposeFn const &fn)
-	    -> void;
+	auto scrollable(Id key,
+	    ScrollOptions const &options = Gui::ScrollOptions::builder().build(),
+	    ComposeFn const &fn = nullptr) -> void;
 
 	auto text(std::string_view key,
 	    std::string_view label,

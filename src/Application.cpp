@@ -5,23 +5,32 @@
 #include <cstdio>
 #include <variant>
 
+#include "IO.h"
 #include "engine/Common.h"
 #include "gui/Components.h"
+#include "gui/Id.h"
 #include "gui/Node.h"
+
+namespace MaterialFM
+{
+
+namespace
+{
+
+auto icon_for_partition(std::string_view const partition) -> std::string_view
+{
+	if (partition.starts_with("flash")) {
+		return "mem";
+	} else if (partition.starts_with("umd") || partition.starts_with("disc")) {
+		return "album";
+	}
+	return "sd";
+}
+
+} // namespace
 
 Application::Application()
 {
-	auto const sfx_result {
-		assets().load_sound_from_file("ahh", "assets/ahh.ogg"),
-	};
-	sassert(sfx_result == Engine::AssetError::Ok, "Failed to load SFX asset");
-
-	auto const song_result {
-		// assets().load_song_from_file("ticktock", "assets/ticktock.mp3"),
-		assets().load_song_from_file("ticktock", "assets/ticktock.ogg"),
-	};
-	sassert(song_result == Engine::AssetError::Ok, "Failed to load song asset");
-
 	auto font_result {
 		assets().load_font_from_file(
 		    "ubuntu", "assets/Fonts/Ubuntu-Regular.ttf"),
@@ -56,6 +65,8 @@ Application::Application()
 			m_has_icon_atlas = true;
 		}
 	}
+
+	m_partitions = find_available_partitions();
 }
 
 namespace
@@ -73,8 +84,6 @@ Application::~Application()
 
 auto Application::on_update(float const dt) -> void
 {
-	static auto const sfx_handle { assets().sound_handle("ahh") };
-	static auto const song_handle { assets().song_handle("ticktock") };
 	static auto fps_smooth { 60.0f };
 	static auto fps_window_value { 60.0f };
 	static float fps_window_elapsed {};
@@ -179,9 +188,7 @@ auto Application::on_update(float const dt) -> void
 						                    Gui::id("track_1"),
 						                    "Track 1",
 						                    std::nullopt,
-						                    [&]() {
-							                    assets().play_song(song_handle);
-						                    },
+						                    [&]() { },
 						                    true);
 						                for (int i = 2; i < 10; i++) {
 							                Gui::components::button(
@@ -189,12 +196,10 @@ auto Application::on_update(float const dt) -> void
 							                    std::format("track_{}", i),
 							                    std::format("Track {}", i),
 							                    std::nullopt,
-							                    [&]() {
-								                    assets().play_sound(
-								                        sfx_handle);
-							                    },
+							                    [&]() { },
 							                    true);
 						                }
+						                list.spacer(Gui::id("spacer"), 10.0f);
 					                });
 				            });
 			        });
@@ -208,53 +213,35 @@ auto Application::on_update(float const dt) -> void
 		        .gap(8.0f)
 		        .build(),
 		    [&](Gui::Context &drawer) {
-			    auto const box_pulse {
-				    Gui::Animation::Definition::builder("red_box_pulse")
-				        .from(20.0f)
-				        .to(40.0f)
-				        .duration(0.72f)
-				        .easing(Gui::Animation::Easing::EaseInOutSine)
-				        .repeat(Gui::Animation::RepeatMode::PingPong)
-				        .pause_if(drawer.visibility_pause_condition())
-				        .build(),
-			    };
+			    for (auto const &part : m_partitions) {
+				    Gui::components::button(drawer,
+				        std::format("btn_{}", part),
+				        part,
+				        icon_for_partition(part));
+			    }
 
-			    drawer.text(Gui::id("drawer_title"),
-			        "Navigation",
-			        Gui::TextStyle::builder()
-			            .size(17.0f)
-			            .color(m_gui.theme().on_surface)
-			            .selected_color(m_gui.theme().on_primary)
-			            .build());
-			    Gui::components::button(
-			        drawer, Gui::id("drawer_home"), "Home", "menu", [toast]() {
-				        toast.show("Home unimplemented");
-			        });
 			    Gui::components::button(drawer,
 			        Gui::id("drawer_settings"),
 			        "Settings",
 			        "settings",
 			        [toast]() { toast.show("Settings unimplemented"); });
-			    Gui::components::button(drawer,
-			        Gui::id("drawer_stop"),
-			        "Stop Song",
-			        "archive",
-			        [&, toast]() {
-				        assets().stop_song();
-				        toast.show("Song stopped");
-			        });
 
-			    auto counter { drawer.mutable_state_of<int>("counter", 0) };
-			    drawer.text(drawer.new_id(),
-			        std::format("Count: {}", counter.get()),
-			        Gui::TextStyle::builder()
-			            .size(14.0f)
-			            .color(m_gui.theme().on_surface)
-			            .selected_color(m_gui.theme().on_primary)
-			            .build());
 			    drawer.flex(Gui::id("counter_controls"),
 			        Gui::FlexOptions::builder().row().gap(6.0f).build(),
 			        [&](Gui::Context &controls) {
+				        auto counter {
+					        drawer.mutable_state_of<int>("counter", 0),
+				        };
+
+				        drawer.text(drawer.new_id(),
+				            std::format("Count: {}", counter.get()),
+				            Gui::TextStyle::builder()
+				                .size(14.0f)
+				                .color(m_gui.theme().on_surface)
+				                .selected_color(m_gui.theme().on_primary)
+				                .align_y(Gui::TextAlignY::Center)
+				                .build());
+
 				        Gui::components::button(
 				            controls,
 				            controls.new_id(),
@@ -268,6 +255,7 @@ auto Application::on_update(float const dt) -> void
 				            Gui::components::ButtonStyle {
 				                .text_align_x = Gui::TextAlignX::Center,
 				            });
+
 				        Gui::components::button(
 				            controls,
 				            controls.new_id(),
@@ -282,17 +270,6 @@ auto Application::on_update(float const dt) -> void
 				                .text_align_x = Gui::TextAlignX::Center,
 				            });
 			        });
-
-			    drawer.surface(Gui::id("animated_surface"),
-			        Gui::FlexOptions::builder()
-			            .width(box_pulse.get_ref())
-			            .height(box_pulse.get_ref())
-			            .align_self(Gui::AlignSelf::Start)
-			            .build(),
-			        Gui::SurfaceStyle::builder()
-			            .fill_color(Engine::Color::RED)
-			            .build(),
-			        [&](Gui::Context &) { });
 		    });
 
 		Gui::components::dialog(ui,
@@ -311,16 +288,6 @@ auto Application::on_update(float const dt) -> void
 			            .color(m_gui.theme().on_surface)
 			            .selected_color(m_gui.theme().on_primary)
 			            .build());
-			    Gui::components::button(dialog,
-			        Gui::id("dialog_play"),
-			        "Play Song",
-			        std::nullopt,
-			        [&]() { assets().play_song(song_handle); });
-			    Gui::components::button(dialog,
-			        Gui::id("dialog_pause"),
-			        "Pause Song",
-			        std::nullopt,
-			        [&]() { assets().pause_song(); });
 			    Gui::components::button(dialog,
 			        Gui::id("dialog_close"),
 			        "Close",
@@ -616,3 +583,5 @@ auto Application::on_update(float const dt) -> void
 	//     16.0f,
 	//     Engine::Color::RED);
 }
+
+} // namespace MaterialFM

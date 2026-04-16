@@ -7,6 +7,9 @@
 #include "gui/Gui.h"
 #include "gui/IconAtlas.h"
 
+namespace MaterialFM
+{
+
 class Application final : public Engine::BaseApplication
 {
 public:
@@ -28,4 +31,8 @@ private:
 	std::array<float, FRAME_TIME_HISTORY_CAPACITY> m_frame_ms_history {};
 	size_t m_frame_ms_head {};
 	size_t m_frame_ms_count {};
+
+	std::vector<std::string> m_partitions;
 };
+
+} // namespace MaterialFM

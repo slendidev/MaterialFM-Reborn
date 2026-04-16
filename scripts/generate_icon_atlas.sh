@@ -88,20 +88,35 @@ for i in "${!files[@]}"; do
 		"$OUT_PNG"
 done
 
-magick "$OUT_PNG" -sigmoidal-contrast 20%,50% "$OUT_PNG"
-alpha_tmp="$(mktemp "${OUT_PNG}.XXXXXX.png")"
-magick "$OUT_PNG" -alpha extract "$alpha_tmp"
+orig_alpha="$(mktemp "${OUT_PNG}.origalpha.XXXXXX.png")"
+new_alpha="$(mktemp "${OUT_PNG}.newalpha.XXXXXX.png")"
+
+magick "$OUT_PNG" -alpha extract "$orig_alpha"
+
 magick "$OUT_PNG" \
-	-channel RGB \
-	-sigmoidal-contrast 20%,50% \
+	-background white \
+	-alpha remove \
+	-colorspace gray \
 	-negate \
-	+channel \
+	"$new_alpha"
+
+magick "$orig_alpha" "$new_alpha" \
+	-compose Multiply \
+	-composite \
+	"$new_alpha"
+
+magick "$OUT_PNG" \
+	-alpha off \
+	-fill white -colorize 100 \
 	"$OUT_PNG"
-magick "$OUT_PNG" "$alpha_tmp" \
+
+magick "$OUT_PNG" "$new_alpha" \
 	-compose CopyOpacity \
 	-composite \
 	"$OUT_PNG"
-rm -f "$alpha_tmp"
+
+rm -f "$orig_alpha" "$new_alpha"
+
 {
 	echo "atlas=$OUT_PNG"
 	echo "atlas_width=$atlas_width"
@@ -123,4 +138,3 @@ oxipng -o max -i 0 --strip all "$OUT_PNG"
 
 echo "Wrote atlas: $OUT_PNG"
 echo "Wrote metadata: $OUT_META"
-
