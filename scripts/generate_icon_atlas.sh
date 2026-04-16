@@ -89,12 +89,19 @@ for i in "${!files[@]}"; do
 done
 
 magick "$OUT_PNG" -sigmoidal-contrast 20%,50% "$OUT_PNG"
-magick "$OUT_PNG" -negate "$OUT_PNG"
 alpha_tmp="$(mktemp "${OUT_PNG}.XXXXXX.png")"
-magick "$OUT_PNG" -colorspace Gray "$alpha_tmp"
-magick "$OUT_PNG" "$alpha_tmp" -compose Copy_Opacity -composite "$OUT_PNG"
+magick "$OUT_PNG" -alpha extract "$alpha_tmp"
+magick "$OUT_PNG" \
+	-channel RGB \
+	-sigmoidal-contrast 20%,50% \
+	-negate \
+	+channel \
+	"$OUT_PNG"
+magick "$OUT_PNG" "$alpha_tmp" \
+	-compose CopyOpacity \
+	-composite \
+	"$OUT_PNG"
 rm -f "$alpha_tmp"
-
 {
 	echo "atlas=$OUT_PNG"
 	echo "atlas_width=$atlas_width"
