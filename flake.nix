@@ -49,8 +49,7 @@
             '';
           };
 
-          devShells.default = pkgs.mkShell {
-            inputsFrom = [ inputs.pspdev.devShells.${system}.default ];
+          devShells.default = inputs.pspdev.lib.pspMkShell { inherit pkgs; } {
             packages = nativeBuildInputs;
           };
         };
