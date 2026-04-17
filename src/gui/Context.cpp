@@ -9,12 +9,16 @@ namespace Gui
 
 namespace
 {
-auto animated_value_fallback(FlexOptions::AnimatedFloat const &value) -> float
+auto animated_value_fallback(
+    std::optional<FlexOptions::AnimatedFloat> const &value) -> float
 {
-	if (auto const *static_value { std::get_if<float>(&value) }) {
+	if (!value.has_value()) {
+		return 0.0f;
+	}
+	if (auto const *static_value { std::get_if<float>(&*value) }) {
 		return *static_value;
 	}
-	return std::get<Animation::Ref>(value).fallback;
+	return std::get<Animation::Ref>(*value).fallback;
 }
 
 template<typename T>
@@ -206,7 +210,7 @@ auto FlexOptions::Builder::flex_basis_px(float const value) -> Builder &
 
 auto FlexOptions::Builder::flex_basis_auto() -> Builder &
 {
-	m_options.m_flex_basis = -1.0f;
+	m_options.m_flex_basis.reset();
 	return *this;
 }
 
@@ -256,22 +260,20 @@ auto FlexOptions::Builder::padding(std::array<float, 4> const value)
 
 auto FlexOptions::Builder::merge(FlexOptions const &options) -> Builder &
 {
-	if (options.width() > 0.0f
-	    || std::holds_alternative<Animation::Ref>(options.width_value())) {
+	if (options.has_width()) {
 		m_options.m_width = options.width_value();
 	}
-	if (options.height() > 0.0f
-	    || std::holds_alternative<Animation::Ref>(options.height_value())) {
+	if (options.has_height()) {
 		m_options.m_height = options.height_value();
 	}
 
-	if (options.gap() != 0.0f) {
+	if (options.has_gap()) {
 		m_options.m_gap = options.gap();
 	}
-	if (options.row_gap() != 0.0f) {
+	if (options.has_row_gap()) {
 		m_options.m_row_gap = options.row_gap();
 	}
-	if (options.column_gap() != 0.0f) {
+	if (options.has_column_gap()) {
 		m_options.m_column_gap = options.column_gap();
 	}
 
@@ -281,20 +283,20 @@ auto FlexOptions::Builder::merge(FlexOptions const &options) -> Builder &
 	if (options.flex_shrink() != 1.0f) {
 		m_options.m_flex_shrink = options.flex_shrink();
 	}
-	if (options.flex_basis() >= 0.0f) {
+	if (options.has_flex_basis()) {
 		m_options.m_flex_basis = options.flex_basis();
 	}
 
-	if (options.min_width() > 0.0f) {
+	if (options.has_min_width()) {
 		m_options.m_min_width = options.min_width();
 	}
-	if (options.min_height() > 0.0f) {
+	if (options.has_min_height()) {
 		m_options.m_min_height = options.min_height();
 	}
-	if (options.max_width() > 0.0f) {
+	if (options.has_max_width()) {
 		m_options.m_max_width = options.max_width();
 	}
-	if (options.max_height() > 0.0f) {
+	if (options.has_max_height()) {
 		m_options.m_max_height = options.max_height();
 	}
 
@@ -416,7 +418,7 @@ auto ScrollOptions::Builder::flex_basis_px(float const value) -> Builder &
 
 auto ScrollOptions::Builder::flex_basis_auto() -> Builder &
 {
-	m_options.m_flex_basis = -1.0f;
+	m_options.m_flex_basis.reset();
 	return *this;
 }
 
@@ -455,18 +457,29 @@ auto ScrollOptions::as_flex_options() const -> FlexOptions
 {
 	auto builder { FlexOptions::builder() };
 	std::visit([&](auto const &value) { builder.padding(value); }, m_padding);
-	builder.width(m_width)
-	    .height(m_height)
-	    .min_width(m_min_width)
-	    .min_height(m_min_height)
-	    .max_width(m_max_width)
-	    .max_height(m_max_height)
-	    .flex_grow(m_flex_grow)
+	if (m_width.has_value()) {
+		builder.width(*m_width);
+	}
+	if (m_height.has_value()) {
+		builder.height(*m_height);
+	}
+	if (m_min_width.has_value()) {
+		builder.min_width(*m_min_width);
+	}
+	if (m_min_height.has_value()) {
+		builder.min_height(*m_min_height);
+	}
+	if (m_max_width.has_value()) {
+		builder.max_width(*m_max_width);
+	}
+	if (m_max_height.has_value()) {
+		builder.max_height(*m_max_height);
+	}
+	builder.flex_grow(m_flex_grow)
 	    .flex_shrink(m_flex_shrink)
-	    .flex_basis_px(m_flex_basis)
 	    .align_self(m_align_self);
-	if (m_flex_basis < 0.0f) {
-		builder.flex_basis_auto();
+	if (m_flex_basis.has_value()) {
+		builder.flex_basis_px(*m_flex_basis);
 	}
 	return builder.build();
 }

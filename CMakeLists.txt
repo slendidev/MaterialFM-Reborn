@@ -36,6 +36,8 @@ add_executable(${PROJECT_NAME}
 	src/gui/Components.cpp
 	src/gui/Context.cpp
 	src/gui/IconAtlas.cpp
+	src/gui/SystemDebug.cpp
+	src/gui/SystemRender.cpp
 	src/gui/System.cpp
 	src/engine/Application.cpp
 	src/engine/Asset.cpp

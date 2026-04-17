@@ -245,12 +245,14 @@ auto render_dialog(Context &ctx,
 		screen_height * std::clamp(style.max_height_ratio, 0.1f, 1.0f),
 	};
 	auto const dialog_width {
-		options.width() > 0.0f ? std::min(options.width(), dialog_max_width)
-		                       : 0.0f,
+		options.has_width()
+		    ? std::min(std::max(0.0f, options.width()), dialog_max_width)
+		    : 0.0f,
 	};
 	auto const dialog_height {
-		options.height() > 0.0f ? std::min(options.height(), dialog_max_height)
-		                        : 0.0f,
+		options.has_height()
+		    ? std::min(std::max(0.0f, options.height()), dialog_max_height)
+		    : 0.0f,
 	};
 	auto const &theme { ctx.theme() };
 	auto const scrim { style.scrim.value_or(theme.scrim) };

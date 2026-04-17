@@ -31,19 +31,29 @@ public:
 	static auto builder() -> Builder;
 
 	auto padding() const -> Padding const & { return m_padding; }
+	auto has_width() const -> bool { return m_width.has_value(); }
+	auto has_height() const -> bool { return m_height.has_value(); }
+	auto has_gap() const -> bool { return m_gap.has_value(); }
+	auto has_row_gap() const -> bool { return m_row_gap.has_value(); }
+	auto has_column_gap() const -> bool { return m_column_gap.has_value(); }
+	auto has_flex_basis() const -> bool { return m_flex_basis.has_value(); }
+	auto has_min_width() const -> bool { return m_min_width.has_value(); }
+	auto has_min_height() const -> bool { return m_min_height.has_value(); }
+	auto has_max_width() const -> bool { return m_max_width.has_value(); }
+	auto has_max_height() const -> bool { return m_max_height.has_value(); }
 	auto width() const -> float;
 	auto height() const -> float;
-	auto width_value() const -> AnimatedFloat const & { return m_width; }
-	auto height_value() const -> AnimatedFloat const & { return m_height; }
-	auto gap() const -> float { return m_gap; }
-	auto row_gap() const -> float
+	auto width_value() const -> std::optional<AnimatedFloat> const &
 	{
-		return m_row_gap >= 0.0f ? m_row_gap : m_gap;
+		return m_width;
 	}
-	auto column_gap() const -> float
+	auto height_value() const -> std::optional<AnimatedFloat> const &
 	{
-		return m_column_gap >= 0.0f ? m_column_gap : m_gap;
+		return m_height;
 	}
+	auto gap() const -> float { return m_gap.value_or(0.0f); }
+	auto row_gap() const -> float { return m_row_gap.value_or(gap()); }
+	auto column_gap() const -> float { return m_column_gap.value_or(gap()); }
 	auto direction() const -> FlexDirection { return m_direction; }
 	auto wrap() const -> FlexWrap { return m_wrap; }
 	auto justify_content() const -> JustifyContent { return m_justify_content; }
@@ -52,28 +62,28 @@ public:
 	auto align_self() const -> AlignSelf { return m_align_self; }
 	auto flex_grow() const -> float { return m_flex_grow; }
 	auto flex_shrink() const -> float { return m_flex_shrink; }
-	auto flex_basis() const -> float { return m_flex_basis; }
-	auto min_width() const -> float { return m_min_width; }
-	auto min_height() const -> float { return m_min_height; }
-	auto max_width() const -> float { return m_max_width; }
-	auto max_height() const -> float { return m_max_height; }
+	auto flex_basis() const -> float { return m_flex_basis.value_or(-1.0f); }
+	auto min_width() const -> float { return m_min_width.value_or(0.0f); }
+	auto min_height() const -> float { return m_min_height.value_or(0.0f); }
+	auto max_width() const -> float { return m_max_width.value_or(0.0f); }
+	auto max_height() const -> float { return m_max_height.value_or(0.0f); }
 
 private:
 	FlexOptions() = default;
 
 	Padding m_padding { 0.0f };
-	float m_gap { 0.0f };
-	float m_row_gap { -1.0f };
-	float m_column_gap { -1.0f };
-	AnimatedFloat m_width { 0.0f };
-	AnimatedFloat m_height { 0.0f };
+	std::optional<float> m_gap {};
+	std::optional<float> m_row_gap {};
+	std::optional<float> m_column_gap {};
+	std::optional<AnimatedFloat> m_width {};
+	std::optional<AnimatedFloat> m_height {};
 	float m_flex_grow { 0.0f };
 	float m_flex_shrink { 1.0f };
-	float m_flex_basis { -1.0f };
-	float m_min_width { 0.0f };
-	float m_min_height { 0.0f };
-	float m_max_width { 0.0f };
-	float m_max_height { 0.0f };
+	std::optional<float> m_flex_basis {};
+	std::optional<float> m_min_width {};
+	std::optional<float> m_min_height {};
+	std::optional<float> m_max_width {};
+	std::optional<float> m_max_height {};
 	FlexDirection m_direction { FlexDirection::Column };
 	FlexWrap m_wrap { FlexWrap::NoWrap };
 	JustifyContent m_justify_content { JustifyContent::Start };
@@ -134,29 +144,38 @@ public:
 	auto axis() const -> ScrollAxis { return m_axis; }
 	auto reveal_mode() const -> ScrollRevealMode { return m_reveal_mode; }
 	auto step() const -> float { return m_step; }
+	auto has_width() const -> bool { return m_width.has_value(); }
+	auto has_height() const -> bool { return m_height.has_value(); }
+	auto has_flex_basis() const -> bool { return m_flex_basis.has_value(); }
+	auto has_min_width() const -> bool { return m_min_width.has_value(); }
+	auto has_min_height() const -> bool { return m_min_height.has_value(); }
+	auto has_max_width() const -> bool { return m_max_width.has_value(); }
+	auto has_max_height() const -> bool { return m_max_height.has_value(); }
+	auto width() const -> float { return m_width.value_or(0.0f); }
+	auto height() const -> float { return m_height.value_or(0.0f); }
 	auto as_flex_options() const -> FlexOptions;
-	auto max_width() const -> float { return m_max_width; }
-	auto max_height() const -> float { return m_max_height; }
-	auto min_width() const -> float { return m_min_width; }
-	auto min_height() const -> float { return m_min_height; }
+	auto max_width() const -> float { return m_max_width.value_or(0.0f); }
+	auto max_height() const -> float { return m_max_height.value_or(0.0f); }
+	auto min_width() const -> float { return m_min_width.value_or(0.0f); }
+	auto min_height() const -> float { return m_min_height.value_or(0.0f); }
 
 private:
 	ScrollOptions() = default;
 
 	Padding m_padding { 0.0f };
-	float m_width { 0.0f };
-	float m_height { 0.0f };
+	std::optional<float> m_width {};
+	std::optional<float> m_height {};
 	float m_flex_grow { 0.0f };
 	float m_flex_shrink { 1.0f };
-	float m_flex_basis { -1.0f };
+	std::optional<float> m_flex_basis {};
 	AlignSelf m_align_self { AlignSelf::Auto };
 	ScrollAxis m_axis { ScrollAxis::Vertical };
 	ScrollRevealMode m_reveal_mode { ScrollRevealMode::Minimal };
 	float m_step { 24.0f };
-	float m_min_width { 0.0f };
-	float m_min_height { 0.0f };
-	float m_max_width {};
-	float m_max_height {};
+	std::optional<float> m_min_width {};
+	std::optional<float> m_min_height {};
+	std::optional<float> m_max_width {};
+	std::optional<float> m_max_height {};
 
 	friend class Builder;
 };
