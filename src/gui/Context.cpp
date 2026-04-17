@@ -736,14 +736,6 @@ auto Context::text(Id const key,
 	pop_node();
 }
 
-auto Context::text(std::string_view const key,
-    std::string_view const label,
-    TextStyle style,
-    FlexOptions const &options) -> void
-{
-	text(this->id(key), label, style, options);
-}
-
 auto Context::icon(
     Id const key, std::string_view const icon_name, IconStyle style) -> void
 {
@@ -755,13 +747,6 @@ auto Context::icon(
 	assign_visual(node->icon_tint, style.tint, m_system);
 	assign_visual(node->selected_icon_tint, style.selected_tint, m_system);
 	pop_node();
-}
-
-auto Context::icon(std::string_view const key,
-    std::string_view const icon_name,
-    IconStyle style) -> void
-{
-	icon(this->id(key), icon_name, style);
 }
 
 auto Context::surface(Id const key,
@@ -785,14 +770,6 @@ auto Context::surface(Id const key,
 	pop_node();
 }
 
-auto Context::surface(std::string_view const key,
-    FlexOptions const &options,
-    SurfaceStyle const style,
-    ComposeFn const &fn) -> void
-{
-	surface(this->id(key), options, style, fn);
-}
-
 auto Context::pressable(Id const key,
     FlexOptions const &options,
     std::function<void()> on_activate,
@@ -805,15 +782,6 @@ auto Context::pressable(Id const key,
 	node->on_activate = std::move(on_activate);
 	fn(*this);
 	pop_node();
-}
-
-auto Context::pressable(std::string_view const key,
-    FlexOptions const &options,
-    std::function<void()> on_activate,
-    bool const selectable,
-    ComposeFn const &fn) -> void
-{
-	pressable(this->id(key), options, std::move(on_activate), selectable, fn);
 }
 
 auto Context::layer(Id const key,
@@ -864,15 +832,6 @@ auto Context::layer(Id const key,
 	m_scope = previous_scope;
 }
 
-auto Context::layer(std::string_view const key,
-    LayerPresentation const presentation,
-    FlexOptions const &options,
-    LayerStyle const style,
-    ComposeFn const &fn) -> void
-{
-	layer(this->id(key), presentation, options, style, fn);
-}
-
 auto Context::memo(Id const key, uint32_t const deps_hash, ComposeFn const &fn)
     -> void
 {
@@ -886,23 +845,11 @@ auto Context::memo(Id const key, uint32_t const deps_hash, ComposeFn const &fn)
 	pop_node();
 }
 
-auto Context::memo(
-    std::string_view const key, uint32_t const deps_hash, ComposeFn const &fn)
-    -> void
-{
-	memo(this->id(key), deps_hash, fn);
-}
-
 auto Context::spacer(Id const key, float const height) -> void
 {
 	auto *node { push_node(Kind::Spacer, key, m_scope) };
 	assign_layout(node->fixed_height, height, m_system);
 	pop_node();
-}
-
-auto Context::spacer(std::string_view const key, float const height) -> void
-{
-	spacer(this->id(key), height);
 }
 
 auto Context::flex(
@@ -911,13 +858,6 @@ auto Context::flex(
 	push_node(Kind::Flex, key, m_scope, options);
 	fn(*this);
 	pop_node();
-}
-
-auto Context::flex(
-    std::string_view const key, FlexOptions const &options, ComposeFn const &fn)
-    -> void
-{
-	flex(this->id(key), options, fn);
 }
 
 auto Context::scrollable(
@@ -934,13 +874,6 @@ auto Context::scrollable(
 		fn(*this);
 	}
 	pop_node();
-}
-
-auto Context::scrollable(std::string_view const key,
-    ScrollOptions const &options,
-    ComposeFn const &fn) -> void
-{
-	scrollable(this->id(key), options, fn);
 }
 
 auto Context::sidebar_open() const -> bool

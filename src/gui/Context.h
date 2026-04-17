@@ -411,33 +411,61 @@ public:
 	auto text(std::string_view key,
 	    std::string_view label,
 	    TextStyle style = {},
-	    FlexOptions const &options = FlexOptions::builder().build()) -> void;
+	    FlexOptions const &options = FlexOptions::builder().build()) -> void
+	{
+		text(this->id(key), label, style, options);
+	}
 	auto memo(std::string_view key, uint32_t deps_hash, ComposeFn const &fn)
-	    -> void;
-	auto spacer(std::string_view key, float height) -> void;
+	    -> void
+	{
+		memo(this->id(key), deps_hash, fn);
+	}
+	auto spacer(std::string_view key, float height) -> void
+	{
+		spacer(this->id(key), height);
+	}
 	auto icon(
 	    std::string_view key, std::string_view icon_name, IconStyle style = {})
-	    -> void;
+	    -> void
+	{
+		icon(this->id(key), icon_name, style);
+	}
 	auto surface(std::string_view key,
 	    FlexOptions const &options,
 	    SurfaceStyle style,
-	    ComposeFn const &fn) -> void;
+	    ComposeFn const &fn) -> void
+	{
+		surface(this->id(key), options, style, fn);
+	}
 	auto pressable(std::string_view key,
 	    FlexOptions const &options,
 	    std::function<void()> on_activate,
 	    bool selectable,
-	    ComposeFn const &fn) -> void;
+	    ComposeFn const &fn) -> void
+	{
+		pressable(
+		    this->id(key), options, std::move(on_activate), selectable, fn);
+	}
 	auto layer(std::string_view key,
 	    LayerPresentation presentation,
 	    FlexOptions const &options,
 	    LayerStyle style,
-	    ComposeFn const &fn) -> void;
+	    ComposeFn const &fn) -> void
+	{
+		layer(this->id(key), presentation, options, style, fn);
+	}
 	auto flex(
 	    std::string_view key, FlexOptions const &options, ComposeFn const &fn)
-	    -> void;
+	    -> void
+	{
+		flex(this->id(key), options, fn);
+	}
 	auto scrollable(
 	    std::string_view key, ScrollOptions const &options, ComposeFn const &fn)
-	    -> void;
+	    -> void
+	{
+		scrollable(this->id(key), options, fn);
+	}
 
 	auto sidebar_open() const -> bool;
 	auto sidebar_visible() const -> bool;
