@@ -200,8 +200,8 @@ struct TextStyle
 	TextAlignX align_x { TextAlignX::Left };
 	TextAlignY align_y { TextAlignY::Top };
 	bool use_pressable_state {};
-	smath::Vec4 color {};
-	smath::Vec4 selected_color {};
+	std::optional<smath::Vec4> color {};
+	std::optional<smath::Vec4> selected_color {};
 };
 
 class TextStyle::Builder
@@ -230,10 +230,10 @@ struct SurfaceStyle
 	bool use_pressable_state {};
 	float radius {};
 	float outline_thickness { 1.0f };
-	smath::Vec4 fill_color {};
-	smath::Vec4 focus_fill_color {};
-	smath::Vec4 selected_fill_color {};
-	smath::Vec4 outline_color {};
+	std::optional<smath::Vec4> fill_color {};
+	std::optional<smath::Vec4> focus_fill_color {};
+	std::optional<smath::Vec4> selected_fill_color {};
+	std::optional<smath::Vec4> outline_color {};
 };
 
 class SurfaceStyle::Builder
@@ -261,8 +261,8 @@ struct IconStyle
 
 	float size { 24.0f };
 	bool use_pressable_state {};
-	smath::Vec4 tint {};
-	smath::Vec4 selected_tint {};
+	std::optional<smath::Vec4> tint {};
+	std::optional<smath::Vec4> selected_tint {};
 };
 
 class IconStyle::Builder
@@ -284,10 +284,10 @@ struct LayerStyle
 	static auto builder() -> Builder;
 
 	bool draw_scrim { true };
-	smath::Vec4 scrim_color {};
+	std::optional<smath::Vec4> scrim_color {};
 	bool draw_fill { true };
 	float radius {};
-	smath::Vec4 fill_color {};
+	std::optional<smath::Vec4> fill_color {};
 	float opacity { 1.0f };
 	std::optional<Animation::Ref> animated_opacity {};
 };
@@ -320,14 +320,20 @@ public:
 	    : m_get(std::move(getter)), m_set(std::move(setter)),
 	      m_update(std::move(updater))
 	{ }
+	MutableState(Getter getter, Setter setter, Updater updater, T fallback)
+	    : m_get(std::move(getter)), m_set(std::move(setter)),
+	      m_update(std::move(updater)), m_fallback(std::move(fallback))
+	{ }
 
 	auto get() const -> T const &
 	{
 		if (m_get) {
 			return m_get();
 		}
-		static T fallback {};
-		return fallback;
+		if (!m_fallback.has_value()) {
+			m_fallback.emplace();
+		}
+		return *m_fallback;
 	}
 	auto set(T value) const -> void
 	{
@@ -347,6 +353,7 @@ private:
 	Getter m_get {};
 	Setter m_set {};
 	Updater m_update {};
+	mutable std::optional<T> m_fallback {};
 };
 
 class Context
@@ -455,9 +462,9 @@ auto Context::remember(std::string_view const key, T init) -> T &
 template<typename T> auto Context::remember(Id const key, T init) -> T &
 {
 	if (m_current == nullptr) {
-		static T fallback {};
+		static thread_local std::optional<T> fallback {};
 		fallback = std::move(init);
-		return fallback;
+		return *fallback;
 	}
 	auto const full_key {
 		m_system.state_id(m_current->key, key),
@@ -476,7 +483,7 @@ template<typename T>
 auto Context::mutable_state_of(Id const key, T init) -> MutableState<T>
 {
 	if (m_current == nullptr) {
-		return MutableState<T> {};
+		return MutableState<T> { {}, {}, {}, std::move(init) };
 	}
 	auto const full_key {
 		m_system.state_id(m_current->key, key),

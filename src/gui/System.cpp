@@ -62,6 +62,12 @@ auto tween_spec_equal(
 	return a.custom_easing.target_type() == b.custom_easing.target_type();
 }
 
+auto scope_accepts_focus(Scope const node_scope, Scope const active_scope)
+    -> bool
+{
+	return node_scope == Scope::Hud || node_scope == active_scope;
+}
+
 auto resolve_align_items(AlignItems const container_align, AlignSelf const self)
     -> AlignItems
 {
@@ -136,15 +142,10 @@ auto mix_color(smath::Vec4 const a, smath::Vec4 const b, float const t)
 	return a + (b - a) * clamped;
 }
 
-auto choose_color(smath::Vec4 const candidate, smath::Vec4 const fallback)
-    -> smath::Vec4
+auto choose_color(std::optional<smath::Vec4> const &candidate,
+    smath::Vec4 const fallback) -> smath::Vec4
 {
-	auto const is_unset {
-		std::abs(candidate.x()) <= 0.0001f && std::abs(candidate.y()) <= 0.0001f
-		    && std::abs(candidate.z()) <= 0.0001f
-		    && std::abs(candidate.w()) <= 0.0001f,
-	};
-	return is_unset ? fallback : candidate;
+	return candidate.value_or(fallback);
 }
 
 auto intersect_rects(Engine::Rect<> const a, Engine::Rect<> const b)
@@ -697,6 +698,9 @@ auto System::mark_scope_recomposed(Scope const scope) -> void
 		m_stats.recomposed_sidebar += 1;
 		return;
 	}
+	if (scope == Scope::Hud) {
+		return;
+	}
 	m_stats.recomposed_dialog += 1;
 }
 
@@ -768,6 +772,8 @@ auto System::clone_node(Node const &source, Node *const parent) const
 	out->corner_radius = source.corner_radius;
 	out->outline_thickness = source.outline_thickness;
 	out->icon_size = source.icon_size;
+	out->opacity = source.opacity;
+	out->animated_opacity = source.animated_opacity;
 	out->layer_presentation = source.layer_presentation;
 	out->fill_color = source.fill_color;
 	out->focus_fill_color = source.focus_fill_color;
@@ -820,82 +826,6 @@ auto System::stash_orphan(std::unique_ptr<Node> node) -> void
 	m_node_pool.push_back(std::move(node));
 }
 
-auto System::restore_memo_child(Node &parent, Node const &source) -> void
-{
-	auto const local_key { source.local_key };
-	auto *node { reconcile_node(&parent,
-		source.kind,
-		source.scope,
-		local_key,
-		FlexOptions::builder()
-		    .padding(std::array<float, 4> { source.padding_top,
-		        source.padding_right,
-		        source.padding_bottom,
-		        source.padding_left })
-		    .gap(source.gap)
-		    .row_gap(source.row_gap)
-		    .column_gap(source.column_gap)
-		    .width(source.fixed_width)
-		    .height(source.fixed_height)
-		    .flex_grow(source.flex_grow)
-		    .flex_shrink(source.flex_shrink)
-		    .flex_basis_px(source.flex_basis)
-		    .direction(source.flex_direction)
-		    .wrap(source.flex_wrap)
-		    .justify_content(source.justify_content)
-		    .align_items(source.align_items)
-		    .align_content(source.align_content)
-		    .align_self(source.align_self)
-		    .build()) };
-	if (source.flex_basis < 0.0f) {
-		node->flex_basis = -1.0f;
-	}
-	node->min_width = source.min_width;
-	node->min_height = source.min_height;
-	node->max_width = source.max_width;
-	node->max_height = source.max_height;
-	node->animated_width = source.animated_width;
-	node->animated_height = source.animated_height;
-	node->scroll_axis = source.scroll_axis;
-	node->scroll_reveal_mode = source.scroll_reveal_mode;
-	node->scroll_step = source.scroll_step;
-	node->scroll_x = source.scroll_x;
-	node->scroll_y = source.scroll_y;
-	node->scroll_target_x = source.scroll_target_x;
-	node->scroll_target_y = source.scroll_target_y;
-	node->label = source.label;
-	node->icon_name = source.icon_name;
-	node->text_size = source.text_size;
-	node->text_align_x = source.text_align_x;
-	node->text_align_y = source.text_align_y;
-	node->interactive = source.interactive;
-	node->selectable = source.selectable;
-	node->use_pressable_state = source.use_pressable_state;
-	node->draw_fill = source.draw_fill;
-	node->draw_outline = source.draw_outline;
-	node->draw_scrim = source.draw_scrim;
-	node->corner_radius = source.corner_radius;
-	node->outline_thickness = source.outline_thickness;
-	node->icon_size = source.icon_size;
-	node->layer_presentation = source.layer_presentation;
-	node->fill_color = source.fill_color;
-	node->focus_fill_color = source.focus_fill_color;
-	node->selected_fill_color = source.selected_fill_color;
-	node->outline_color = source.outline_color;
-	node->text_color = source.text_color;
-	node->selected_text_color = source.selected_text_color;
-	node->icon_tint = source.icon_tint;
-	node->selected_icon_tint = source.selected_icon_tint;
-	node->scrim_color = source.scrim_color;
-	node->recompose_count = source.recompose_count;
-	node->skip_count = source.skip_count;
-	node->on_activate = source.on_activate;
-
-	for (auto const &child : source.children) {
-		restore_memo_child(*node, *child);
-	}
-}
-
 auto System::memo_store(Node const &node) -> void
 {
 	auto &bucket { m_memo_children[node.key] };
@@ -914,7 +844,7 @@ auto System::memo_restore(Node &node) -> bool
 	}
 	node.children.clear();
 	for (auto const &child : it->second) {
-		restore_memo_child(node, *child);
+		node.children.push_back(clone_node(*child, &node));
 	}
 	node.skip_count += 1;
 	return true;
@@ -1218,15 +1148,15 @@ auto System::reconcile_node(Node *const parent,
 		node->opacity = 1.0f;
 		node->animated_opacity.reset();
 		node->layer_presentation = LayerPresentation::Drawer;
-		node->fill_color = smath::Vec4 {};
-		node->focus_fill_color = smath::Vec4 {};
-		node->selected_fill_color = smath::Vec4 {};
-		node->outline_color = smath::Vec4 {};
-		node->text_color = smath::Vec4 {};
-		node->selected_text_color = smath::Vec4 {};
-		node->icon_tint = smath::Vec4 {};
-		node->selected_icon_tint = smath::Vec4 {};
-		node->scrim_color = smath::Vec4 {};
+		node->fill_color.reset();
+		node->focus_fill_color.reset();
+		node->selected_fill_color.reset();
+		node->outline_color.reset();
+		node->text_color.reset();
+		node->selected_text_color.reset();
+		node->icon_tint.reset();
+		node->selected_icon_tint.reset();
+		node->scrim_color.reset();
 		node->on_activate = {};
 		mark_layout_change();
 		mark_visual_change();
@@ -2819,12 +2749,12 @@ auto System::try_make_render_state(System::RenderNode const &node,
 	auto const scope_is_active { [&]() {
 		auto const node_scope { node.scope };
 		if (m_dialog_open) {
-			return node_scope == Scope::Dialog;
+			return scope_accepts_focus(node_scope, Scope::Dialog);
 		}
 		if (m_sidebar_open) {
-			return node_scope == Scope::Sidebar;
+			return scope_accepts_focus(node_scope, Scope::Sidebar);
 		}
-		return node_scope == Scope::Root;
+		return scope_accepts_focus(node_scope, Scope::Root);
 	}() };
 	out.visible_rect = *visible_rect;
 	out.opacity = std::clamp(parent_opacity * node.opacity, 0.0f, 1.0f);
@@ -3165,12 +3095,12 @@ auto System::emit_node_self_into_passes(PassBuckets &passes,
 	auto const scope_is_active { [&]() {
 		auto const node_scope { node.scope };
 		if (m_dialog_open) {
-			return node_scope == Scope::Dialog;
+			return scope_accepts_focus(node_scope, Scope::Dialog);
 		}
 		if (m_sidebar_open) {
-			return node_scope == Scope::Sidebar;
+			return scope_accepts_focus(node_scope, Scope::Sidebar);
 		}
-		return node_scope == Scope::Root;
+		return scope_accepts_focus(node_scope, Scope::Root);
 	}() };
 	auto const focused_here {
 		scope_is_active && focused_key.valid() && focused_key == node.key,

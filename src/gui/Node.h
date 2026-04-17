@@ -18,6 +18,7 @@ enum class Scope
 	Root,
 	Sidebar,
 	Dialog,
+	Hud,
 };
 
 enum class Kind
@@ -176,15 +177,15 @@ struct Node
 	float opacity { 1.0f };
 	std::optional<Animation::Ref> animated_opacity {};
 	LayerPresentation layer_presentation { LayerPresentation::Drawer };
-	smath::Vec4 fill_color {};
-	smath::Vec4 focus_fill_color {};
-	smath::Vec4 selected_fill_color {};
-	smath::Vec4 outline_color {};
-	smath::Vec4 text_color {};
-	smath::Vec4 selected_text_color {};
-	smath::Vec4 icon_tint {};
-	smath::Vec4 selected_icon_tint {};
-	smath::Vec4 scrim_color {};
+	std::optional<smath::Vec4> fill_color {};
+	std::optional<smath::Vec4> focus_fill_color {};
+	std::optional<smath::Vec4> selected_fill_color {};
+	std::optional<smath::Vec4> outline_color {};
+	std::optional<smath::Vec4> text_color {};
+	std::optional<smath::Vec4> selected_text_color {};
+	std::optional<smath::Vec4> icon_tint {};
+	std::optional<smath::Vec4> selected_icon_tint {};
+	std::optional<smath::Vec4> scrim_color {};
 	Engine::Rect<> local_rect {};
 	Engine::Rect<> world_rect {};
 	smath::Vec2 translation {};

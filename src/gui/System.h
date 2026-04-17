@@ -337,15 +337,15 @@ private:
 		bool draw_outline {};
 		bool draw_scrim {};
 		LayerPresentation layer_presentation { LayerPresentation::Drawer };
-		smath::Vec4 fill_color {};
-		smath::Vec4 focus_fill_color {};
-		smath::Vec4 selected_fill_color {};
-		smath::Vec4 outline_color {};
-		smath::Vec4 text_color {};
-		smath::Vec4 selected_text_color {};
-		smath::Vec4 icon_tint {};
-		smath::Vec4 selected_icon_tint {};
-		smath::Vec4 scrim_color {};
+		std::optional<smath::Vec4> fill_color {};
+		std::optional<smath::Vec4> focus_fill_color {};
+		std::optional<smath::Vec4> selected_fill_color {};
+		std::optional<smath::Vec4> outline_color {};
+		std::optional<smath::Vec4> text_color {};
+		std::optional<smath::Vec4> selected_text_color {};
+		std::optional<smath::Vec4> icon_tint {};
+		std::optional<smath::Vec4> selected_icon_tint {};
+		std::optional<smath::Vec4> scrim_color {};
 		uint16_t depth {};
 		std::string const *label {};
 		std::string const *icon_name {};
@@ -364,7 +364,6 @@ private:
 	auto active_scope() const -> Scope;
 	auto collect_reconcile_nodes(std::unique_ptr<Node> node) -> void;
 	auto stash_orphan(std::unique_ptr<Node> node) -> void;
-	auto restore_memo_child(Node &parent, Node const &source) -> void;
 	auto build_render_cache_node(
 	    Node const &source, uint16_t depth, uint16_t parent_index) -> uint16_t;
 	auto find_node_by_key(Id key) -> Node *;

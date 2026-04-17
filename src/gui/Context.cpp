@@ -810,8 +810,17 @@ auto Context::layer(Id const key,
     ComposeFn const &fn) -> void
 {
 	auto const previous_scope { m_scope };
-	m_scope = presentation == LayerPresentation::Modal ? Scope::Dialog
-	                                                   : Scope::Sidebar;
+	switch (presentation) {
+	case LayerPresentation::Drawer:
+		m_scope = Scope::Sidebar;
+		break;
+	case LayerPresentation::Modal:
+		m_scope = Scope::Dialog;
+		break;
+	case LayerPresentation::Hud:
+		m_scope = Scope::Hud;
+		break;
+	}
 	auto *node { push_node(Kind::Layer, key, m_scope, options) };
 	assign_visual(node->layer_presentation, presentation, m_system);
 	assign_visual(node->draw_scrim, style.draw_scrim, m_system);
@@ -908,7 +917,9 @@ auto Context::scrollable(
 	assign_world(node->scroll_step, options.step(), m_system);
 	assign_layout(node->max_width, options.max_width(), m_system);
 	assign_layout(node->max_height, options.max_height(), m_system);
-	fn(*this);
+	if (fn) {
+		fn(*this);
+	}
 	pop_node();
 }
 
@@ -942,6 +953,9 @@ auto Context::is_visible() const -> bool
 	if (m_scope == Scope::Dialog) {
 		return m_system.dialog_open();
 	}
+	if (m_scope == Scope::Hud) {
+		return true;
+	}
 	return true;
 }
 
@@ -955,6 +969,9 @@ auto Context::visibility_pause_condition() const -> std::function<bool()>
 		}
 		if (scope == Scope::Dialog) {
 			return !system->dialog_open();
+		}
+		if (scope == Scope::Hud) {
+			return false;
 		}
 		return false;
 	};
