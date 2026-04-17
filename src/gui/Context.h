@@ -285,6 +285,8 @@ struct LayerStyle
 	bool draw_fill { true };
 	float radius {};
 	smath::Vec4 fill_color {};
+	float opacity { 1.0f };
+	std::optional<Animation::Ref> animated_opacity {};
 };
 
 class LayerStyle::Builder
@@ -295,6 +297,8 @@ public:
 	auto draw_fill(bool value) -> Builder &;
 	auto radius(float value) -> Builder &;
 	auto fill_color(smath::Vec4 value) -> Builder &;
+	auto opacity(float value) -> Builder &;
+	auto opacity(Animation::Ref value) -> Builder &;
 	auto build() const -> LayerStyle;
 
 private:

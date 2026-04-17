@@ -166,6 +166,8 @@ struct Node
 	float corner_radius {};
 	float outline_thickness { 1.0f };
 	float icon_size { 24.0f };
+	float opacity { 1.0f };
+	std::optional<Animation::Ref> animated_opacity {};
 	LayerPresentation layer_presentation { LayerPresentation::Drawer };
 	smath::Vec4 fill_color {};
 	smath::Vec4 focus_fill_color {};

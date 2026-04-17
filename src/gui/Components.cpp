@@ -50,18 +50,7 @@ auto mix_color(smath::Vec4 const a, smath::Vec4 const b, float const t)
     -> smath::Vec4
 {
 	auto const clamped { std::clamp(t, 0.0f, 1.0f) };
-	return smath::Vec4 {
-		a.x() + (b.x() - a.x()) * clamped,
-		a.y() + (b.y() - a.y()) * clamped,
-		a.z() + (b.z() - a.z()) * clamped,
-		a.w() + (b.w() - a.w()) * clamped,
-	};
-}
-
-auto with_multiplied_alpha(smath::Vec4 color, float const alpha) -> smath::Vec4
-{
-	color.w() *= std::clamp(alpha, 0.0f, 1.0f);
-	return color;
+	return a + (b - a) * clamped;
 }
 
 auto resolve_color(std::optional<smath::Vec4> const &override_color,
@@ -152,7 +141,7 @@ auto render_button(Context &ctx,
 	    selectable,
 	    [&](Context &pressable) {
 		    pressable.surface(pressable.id("surface"),
-		        FlexOptions::builder().build(),
+		        FlexOptions::builder().flex_grow(1.0f).build(),
 		        SurfaceStyle::builder()
 		            .draw_fill(true)
 		            .draw_outline(style.draw_outline)
@@ -168,6 +157,7 @@ auto render_button(Context &ctx,
 			        surface.flex(surface.id("content"),
 			            FlexOptions::builder()
 			                .row()
+			                .flex_grow(1.0f)
 			                .align_items(AlignItems::Center)
 			                .padding(std::array<float, 2> {
 			                    style.padding_y,
@@ -371,25 +361,36 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 	};
 	auto progress_ref { progress_anim.get_ref() };
 	progress_ref.generation = state.generation;
+	auto opacity_anim {
+		Animation::Definition::builder(key_string + "/opacity")
+		    .from(0.0f)
+		    .to(1.0f)
+		    .duration(total)
+		    .custom_easing([fade_in, hold, fade_out, total](float const t) {
+		        auto const elapsed { std::clamp(t, 0.0f, 1.0f) * total };
+		        if (elapsed < fade_in) {
+			        return elapsed / fade_in;
+		        }
+		        if (elapsed < fade_in + hold) {
+			        return 1.0f;
+		        }
+		        auto const out_t {
+			        (elapsed - fade_in - hold) / std::max(0.001f, fade_out),
+		        };
+		        return 1.0f - std::clamp(out_t, 0.0f, 1.0f);
+		    })
+		    .repeat(Animation::RepeatMode::Once)
+		    .build(),
+	};
+	auto opacity_ref { opacity_anim.get_ref() };
+	opacity_ref.generation = state.generation;
 	auto const progress { std::clamp(
 		ctx.sample_animation(progress_ref), 0.0f, 1.0f) };
-	auto const elapsed { progress * total };
-	auto alpha { 0.0f };
-	if (elapsed < fade_in) {
-		alpha = elapsed / fade_in;
-	} else if (elapsed < fade_in + hold) {
-		alpha = 1.0f;
-	} else {
-		auto const out_t {
-			(elapsed - fade_in - hold) / std::max(0.001f, fade_out),
-		};
-		alpha = 1.0f - std::clamp(out_t, 0.0f, 1.0f);
-	}
 	if (state.active && progress >= 0.999f && !rising_edge) {
 		state_store.update([](ToastState &next) { next.active = false; });
 		state = state_store.get();
 	}
-	if (!state.active && alpha <= 0.001f) {
+	if (!state.active && progress >= 0.999f) {
 		return Toast { std::move(control) };
 	}
 	ctx.request_recompose();
@@ -405,7 +406,11 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 	        .width(window_rect.size.x())
 	        .height(window_rect.size.y())
 	        .build(),
-	    LayerStyle::builder().draw_scrim(false).draw_fill(false).build(),
+	    LayerStyle::builder()
+	        .draw_scrim(false)
+	        .draw_fill(false)
+	        .opacity(opacity_ref)
+	        .build(),
 	    [&](Context &layer_ctx) {
 		    layer_ctx.flex(layer_ctx.id("bottom_center"),
 		        FlexOptions::builder()
@@ -432,7 +437,7 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 			                .draw_outline(false)
 			                .radius(std::max(control->style.corner_radius,
 			                    control->style.min_height * 0.5f))
-			                .fill_color(with_multiplied_alpha(fill, alpha))
+			                .fill_color(fill)
 			                .build(),
 			            [&](Context &card) {
 				            card.flex(card.id("content"),
@@ -454,11 +459,8 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 					                        .size(control->style.text_size)
 					                        .align_x(TextAlignX::Center)
 					                        .align_y(TextAlignY::Center)
-					                        .color(with_multiplied_alpha(
-					                            text_color, alpha))
-					                        .selected_color(
-					                            with_multiplied_alpha(
-					                                text_color, alpha))
+					                        .color(text_color)
+					                        .selected_color(text_color)
 					                        .build());
 				                });
 			            });

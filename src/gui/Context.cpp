@@ -651,6 +651,20 @@ auto LayerStyle::Builder::fill_color(smath::Vec4 const value) -> Builder &
 	return *this;
 }
 
+auto LayerStyle::Builder::opacity(float const value) -> Builder &
+{
+	m_style.opacity = value;
+	m_style.animated_opacity.reset();
+	return *this;
+}
+
+auto LayerStyle::Builder::opacity(Animation::Ref value) -> Builder &
+{
+	m_style.opacity = value.fallback;
+	m_style.animated_opacity = std::move(value);
+	return *this;
+}
+
 auto LayerStyle::Builder::build() const -> LayerStyle
 {
 	return m_style;
@@ -798,6 +812,24 @@ auto Context::layer(Id const key,
 	assign_visual(node->draw_fill, style.draw_fill, m_system);
 	assign_visual(node->corner_radius, style.radius, m_system);
 	assign_visual(node->fill_color, style.fill_color, m_system);
+	if (style.animated_opacity.has_value()) {
+		auto const animated_changed {
+			!node->animated_opacity.has_value()
+			    || node->animated_opacity->key != style.animated_opacity->key
+			    || node->animated_opacity->generation
+			        != style.animated_opacity->generation,
+		};
+		if (animated_changed) {
+			assign_visual(node->opacity, style.opacity, m_system);
+		}
+		node->animated_opacity = style.animated_opacity;
+	} else {
+		if (node->animated_opacity.has_value()) {
+			node->animated_opacity.reset();
+			m_system.mark_visual_change();
+		}
+		assign_visual(node->opacity, style.opacity, m_system);
+	}
 	fn(*this);
 	pop_node();
 	m_scope = previous_scope;

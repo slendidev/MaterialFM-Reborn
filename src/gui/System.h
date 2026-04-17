@@ -171,6 +171,12 @@ public:
 	auto request_world() -> void
 	{
 		m_world_dirty = true;
+		m_render_cache_dirty = true;
+		m_visual_dirty = true;
+	}
+	auto request_render_cache() -> void
+	{
+		m_render_cache_dirty = true;
 		m_visual_dirty = true;
 	}
 	auto request_visual() -> void { m_visual_dirty = true; }
@@ -256,6 +262,7 @@ public:
 	    FlexOptions const &options) -> Node *;
 	auto mark_structure_change() -> void;
 	auto mark_layout_change() -> void;
+	auto mark_render_cache_change() -> void;
 	auto mark_visual_change() -> void;
 
 private:
@@ -300,6 +307,7 @@ private:
 		float corner_radius {};
 		float outline_thickness { 1.0f };
 		float icon_size { 24.0f };
+		float opacity { 1.0f };
 		float scroll_x {};
 		float scroll_y {};
 		float padding_top {};
@@ -367,11 +375,12 @@ private:
 	    -> MeasuredSize;
 	auto measure_leaf(Node const &node) const -> MeasuredSize;
 	auto render_node(std::vector<DrawCommand> &draw_list,
-	    uint16_t node_index,
+	    uint16_t const node_index,
 	    Engine::Rect<> const clip_rect,
-	    Id focused_key,
-	    bool parent_pressable_focused,
-	    bool parent_pressable_selected) -> void;
+	    Id const focused_key,
+	    float const parent_opacity,
+	    bool const parent_pressable_focused,
+	    bool const parent_pressable_selected) -> void;
 	auto draw_debug_bounds(std::vector<DrawCommand> &draw_list,
 	    uint16_t node_index,
 	    Engine::Rect<> const rect,
@@ -406,6 +415,7 @@ private:
 	bool m_structure_dirty { true };
 	bool m_layout_dirty { true };
 	bool m_world_dirty { true };
+	bool m_render_cache_dirty { true };
 	bool m_visual_dirty { true };
 	bool m_root_dirty { true };
 	bool m_sidebar_dirty { true };

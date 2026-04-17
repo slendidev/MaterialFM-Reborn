@@ -133,12 +133,7 @@ auto mix_color(smath::Vec4 const a, smath::Vec4 const b, float const t)
     -> smath::Vec4
 {
 	auto const clamped { std::clamp(t, 0.0f, 1.0f) };
-	return smath::Vec4 {
-		a.x() + (b.x() - a.x()) * clamped,
-		a.y() + (b.y() - a.y()) * clamped,
-		a.z() + (b.z() - a.z()) * clamped,
-		a.w() + (b.w() - a.w()) * clamped,
-	};
+	return a + (b - a) * clamped;
 }
 
 auto choose_color(smath::Vec4 const candidate, smath::Vec4 const fallback)
@@ -397,13 +392,21 @@ auto System::mark_layout_change() -> void
 	}
 }
 
+auto System::mark_render_cache_change() -> void
+{
+	if (m_is_composing) {
+		m_visual_changed_during_compose = true;
+	} else {
+		request_render_cache();
+	}
+}
+
 auto System::mark_structure_change() -> void
 {
 	if (m_is_composing) {
 		m_structure_changed_during_compose = true;
 	} else {
-		m_world_dirty = true;
-		m_visual_dirty = true;
+		request_render_cache();
 	}
 }
 
@@ -428,9 +431,10 @@ auto System::end_compose_tracking() -> void
 	if (m_layout_changed_during_compose) {
 		m_layout_dirty = true;
 		m_world_dirty = true;
+		m_render_cache_dirty = true;
 		m_visual_dirty = true;
 	} else if (m_structure_changed_during_compose) {
-		m_world_dirty = true;
+		m_render_cache_dirty = true;
 		m_visual_dirty = true;
 	} else if (m_visual_changed_during_compose) {
 		m_visual_dirty = true;
@@ -920,6 +924,7 @@ auto System::build_render_cache_node(
 	    .corner_radius = source.corner_radius,
 	    .outline_thickness = source.outline_thickness,
 	    .icon_size = source.icon_size,
+	    .opacity = source.opacity,
 	    .scroll_x = source.scroll_x,
 	    .scroll_y = source.scroll_y,
 	    .padding_top = source.padding_top,
@@ -983,6 +988,7 @@ auto System::begin_frame(WindowHandle const handle,
 	m_stats = Stats {};
 	if (window_rect_changed) {
 		m_layout_dirty = true;
+		m_render_cache_dirty = true;
 		m_visual_dirty = true;
 	}
 
@@ -1191,6 +1197,8 @@ auto System::reconcile_node(Node *const parent,
 		node->corner_radius = 0.0f;
 		node->outline_thickness = 1.0f;
 		node->icon_size = 24.0f;
+		node->opacity = 1.0f;
+		node->animated_opacity.reset();
 		node->layer_presentation = LayerPresentation::Drawer;
 		node->fill_color = smath::Vec4 {};
 		node->focus_fill_color = smath::Vec4 {};
@@ -1976,6 +1984,7 @@ auto System::tick_node_animations(float const dt, bool const advance) -> void
 			if (!approx_equal(next_width, node.fixed_width)) {
 				node.fixed_width = next_width;
 				m_layout_dirty = true;
+				m_render_cache_dirty = true;
 				m_visual_dirty = true;
 			}
 		}
@@ -1986,6 +1995,17 @@ auto System::tick_node_animations(float const dt, bool const advance) -> void
 			if (!approx_equal(next_height, node.fixed_height)) {
 				node.fixed_height = next_height;
 				m_layout_dirty = true;
+				m_render_cache_dirty = true;
+				m_visual_dirty = true;
+			}
+		}
+		if (node.animated_opacity.has_value()) {
+			auto const next_opacity {
+				resolve_animated_float(*node.animated_opacity, node.key),
+			};
+			if (!approx_equal(next_opacity, node.opacity)) {
+				node.opacity = next_opacity;
+				m_render_cache_dirty = true;
 				m_visual_dirty = true;
 			}
 		}
@@ -2688,6 +2708,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
     uint16_t const node_index,
     Engine::Rect<> const clip_rect,
     Id const focused_key,
+    float const parent_opacity,
     bool const parent_pressable_focused,
     bool const parent_pressable_selected) -> void
 {
@@ -2701,6 +2722,9 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 	auto const &label { *node.label };
 	auto const &icon_name { *node.icon_name };
 	auto node_rect { node.rect };
+	auto const opacity {
+		std::clamp(parent_opacity * node.opacity, 0.0f, 1.0f),
+	};
 
 	auto const visible_rect { intersect_rects(node_rect, clip_rect) };
 	if (!visible_rect.has_value()) {
@@ -2743,6 +2767,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			text_color
 			    = choose_color(node.selected_text_color, m_theme.on_primary);
 		}
+		text_color = color_with_alpha(text_color, text_color.w() * opacity);
 		draw_list.push_back(DrawCommand { .payload = DrawCommand::Text {
 		                                      .value = std::string_view(label),
 		                                      .box = node.rect,
@@ -2774,11 +2799,15 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			}
 		}
 		if (node.draw_fill) {
+			fill = color_with_alpha(fill, fill.w() * opacity);
 			draw_rounded_fill(draw_list, node.rect, fill, node.corner_radius);
 		}
 		if (node.draw_outline) {
 			auto const outline {
 				choose_color(node.outline_color, m_theme.outline),
+			};
+			auto const faded_outline {
+				color_with_alpha(outline, outline.w() * opacity),
 			};
 			draw_list.push_back(DrawCommand {
 			    .payload = DrawCommand::Line {
@@ -2786,7 +2815,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			        .end = node.rect.position
 			            + smath::Vec2 { node.rect.size.x(), 0.0f },
 			        .thickness = node.outline_thickness,
-			        .color = outline,
+			        .color = faded_outline,
 			    } });
 			draw_list.push_back(DrawCommand {
 			    .payload = DrawCommand::Line {
@@ -2794,7 +2823,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			            + smath::Vec2 { node.rect.size.x(), 0.0f },
 			        .end = node.rect.position + node.rect.size,
 			        .thickness = node.outline_thickness,
-			        .color = outline,
+			        .color = faded_outline,
 			    } });
 			draw_list.push_back(DrawCommand {
 			    .payload = DrawCommand::Line {
@@ -2802,7 +2831,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			        .end = node.rect.position
 			            + smath::Vec2 { 0.0f, node.rect.size.y() },
 			        .thickness = node.outline_thickness,
-			        .color = outline,
+			        .color = faded_outline,
 			    } });
 			draw_list.push_back(DrawCommand {
 			    .payload = DrawCommand::Line {
@@ -2810,7 +2839,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			            + smath::Vec2 { 0.0f, node.rect.size.y() },
 			        .end = node.rect.position,
 			        .thickness = node.outline_thickness,
-			        .color = outline,
+			        .color = faded_outline,
 			    } });
 		}
 	}
@@ -2823,6 +2852,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			icon_color
 			    = choose_color(node.selected_icon_tint, m_theme.on_primary);
 		}
+		icon_color = color_with_alpha(icon_color, icon_color.w() * opacity);
 		auto icon_drawn { false };
 		if (m_icon_image_id != 0u) {
 			auto const icon_it { m_icon_rects.find(icon_name) };
@@ -2849,7 +2879,9 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			                                       node.icon_size,
 			                                       node.icon_size },
 			                               },
-			                               .color = m_theme.outline,
+			                               .color = color_with_alpha(
+			                                   m_theme.outline,
+			                                   m_theme.outline.w() * opacity),
 		                           } });
 		}
 		if (m_debug_bounds) {
@@ -2872,16 +2904,17 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			if (node.layer_presentation == LayerPresentation::Drawer) {
 				scrim = color_with_alpha(scrim, m_sidebar_progress * scrim.w());
 			}
+			scrim = color_with_alpha(scrim, scrim.w() * opacity);
 			draw_list.push_back(DrawCommand { .payload = DrawCommand::Rect {
 			                                      .rect = m_window_rect,
 			                                      .color = scrim,
 			                                  } });
 		}
 		if (node.draw_fill) {
-			draw_rounded_fill(draw_list,
-			    node.rect,
-			    choose_color(node.fill_color, m_theme.surface),
-			    node.corner_radius);
+			auto const fill { color_with_alpha(
+				choose_color(node.fill_color, m_theme.surface),
+				choose_color(node.fill_color, m_theme.surface).w() * opacity) };
+			draw_rounded_fill(draw_list, node.rect, fill, node.corner_radius);
 		}
 	}
 
@@ -2915,6 +2948,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			    child_index,
 			    *scroll_clip,
 			    focused_key,
+			    opacity,
 			    pressable_focused,
 			    pressable_selected);
 			child_index = child.next_sibling;
@@ -2944,6 +2978,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 		    child_index,
 		    *visible_rect,
 		    focused_key,
+		    opacity,
 		    pressable_focused,
 		    pressable_selected);
 		child_index = child.next_sibling;
@@ -3311,16 +3346,22 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 	if (m_layout_dirty) {
 		layout_tree();
 		m_world_dirty = true;
+		m_render_cache_dirty = true;
 		rebuilt_draw_state = true;
 	}
 	if (m_world_dirty) {
 		update_world_tree();
 		sync_focus();
+		m_world_dirty = false;
+		m_render_cache_dirty = true;
+		rebuilt_draw_state = true;
+	}
+	if (m_render_cache_dirty) {
 		m_render_nodes.clear();
 		m_render_nodes.reserve(NODE_POOL_MAX);
 		m_render_root_index
 		    = build_render_cache_node(*m_root, 0, INVALID_NODE_INDEX);
-		m_world_dirty = false;
+		m_render_cache_dirty = false;
 		rebuilt_draw_state = true;
 	}
 
@@ -3365,6 +3406,7 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 					    child_index,
 					    screen_clip,
 					    focused_key,
+					    1.0f,
 					    false,
 					    false);
 				}

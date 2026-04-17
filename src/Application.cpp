@@ -418,7 +418,7 @@ auto Application::on_update(float const dt) -> void
 		constexpr float PLOT_W { HISTOGRAM_W - 4.0f };
 		constexpr float PLOT_H { HISTOGRAM_H - 4.0f };
 		constexpr float FRAME_MS_SCALE_MAX { 50.0f };
-		constexpr float FRAME_MS_60FPS { 16.67f };
+		constexpr float FRAME_MS_60FPS { 16.7f };
 		constexpr float FRAME_MS_30FPS { 33.33f };
 		constexpr smath::Vec4 HISTOGRAM_BORDER { 0.0f, 0.0f, 0.0f, 0.85f };
 
