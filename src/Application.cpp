@@ -177,11 +177,16 @@ auto Application::on_update(float const dt) -> void
 			        0xA11CEu,
 			        [&](Gui::Context &memo_ctx) {
 				        memo_ctx.scrollable(memo_ctx.id("library"),
-				            Gui::ScrollOptions::builder().build(),
+				            Gui::ScrollOptions::builder()
+				                .reveal_mode(
+				                    Gui::ScrollRevealMode::IncludePadding)
+				                .build(),
 				            [&](Gui::Context &scroll) {
 					            scroll.flex(scroll.id("library_list"),
 					                Gui::FlexOptions::builder()
 					                    .column()
+					                    .padding(std::array<float, 4> {
+					                        0.0f, 0.0f, 10.0f, 0.0f })
 					                    .gap(4.0f)
 					                    .build(),
 					                [&](Gui::Context &list) {
@@ -201,7 +206,6 @@ auto Application::on_update(float const dt) -> void
 							                    .selectable(true)
 							                    .build();
 						                }
-						                list.spacer(list.id("spacer"), 10.0f);
 					                });
 				            });
 			        });

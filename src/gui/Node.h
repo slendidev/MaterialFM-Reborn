@@ -100,6 +100,12 @@ enum class ScrollAxis
 	Both,
 };
 
+enum class ScrollRevealMode
+{
+	Minimal,
+	IncludePadding,
+};
+
 enum class TextAlignX
 {
 	Left,
@@ -150,6 +156,7 @@ struct Node
 	AlignItems align_items { AlignItems::Stretch };
 	AlignContent align_content { AlignContent::Start };
 	ScrollAxis scroll_axis { ScrollAxis::Vertical };
+	ScrollRevealMode scroll_reveal_mode { ScrollRevealMode::Minimal };
 	float scroll_step { 24.0f };
 	float scroll_x {};
 	float scroll_y {};

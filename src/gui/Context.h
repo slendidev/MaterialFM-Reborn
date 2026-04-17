@@ -132,6 +132,7 @@ public:
 	static auto builder() -> Builder;
 
 	auto axis() const -> ScrollAxis { return m_axis; }
+	auto reveal_mode() const -> ScrollRevealMode { return m_reveal_mode; }
 	auto step() const -> float { return m_step; }
 	auto as_flex_options() const -> FlexOptions;
 	auto max_width() const -> float { return m_max_width; }
@@ -150,6 +151,7 @@ private:
 	float m_flex_basis { -1.0f };
 	AlignSelf m_align_self { AlignSelf::Auto };
 	ScrollAxis m_axis { ScrollAxis::Vertical };
+	ScrollRevealMode m_reveal_mode { ScrollRevealMode::Minimal };
 	float m_step { 24.0f };
 	float m_min_width { 0.0f };
 	float m_min_height { 0.0f };
@@ -166,6 +168,7 @@ public:
 	auto vertical() -> Builder &;
 	auto horizontal() -> Builder &;
 	auto both() -> Builder &;
+	auto reveal_mode(ScrollRevealMode value) -> Builder &;
 	auto step(float value) -> Builder &;
 	auto max_width(float value) -> Builder &;
 	auto max_height(float value) -> Builder &;

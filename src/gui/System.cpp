@@ -311,6 +311,21 @@ inline auto clamp_size(System::MeasuredSize size, Node const &node)
 {
 	return a1 > b0 && b1 > a0;
 }
+
+auto flush_clipped_passes(std::vector<DrawCommand> &out,
+    PassBuckets const &passes,
+    Engine::Rect<> const clip_rect) -> void
+{
+	if (passes.shapes.empty() && passes.text.empty() && passes.icons.empty()
+	    && passes.overlay.empty()) {
+		return;
+	}
+
+	out.push_back(
+	    DrawCommand { .payload = DrawCommand::PushClip { clip_rect } });
+	passes.flush_into(out);
+	out.push_back(DrawCommand { .payload = DrawCommand::PopClip {} });
+}
 } // namespace
 
 auto System::IdRegistry::intern(std::string_view const value) -> Id
@@ -736,6 +751,7 @@ auto System::clone_node(Node const &source, Node *const parent) const
 	out->align_items = source.align_items;
 	out->align_content = source.align_content;
 	out->scroll_axis = source.scroll_axis;
+	out->scroll_reveal_mode = source.scroll_reveal_mode;
 	out->scroll_step = source.scroll_step;
 	out->scroll_x = source.scroll_x;
 	out->scroll_y = source.scroll_y;
@@ -841,6 +857,7 @@ auto System::restore_memo_child(Node &parent, Node const &source) -> void
 	node->animated_width = source.animated_width;
 	node->animated_height = source.animated_height;
 	node->scroll_axis = source.scroll_axis;
+	node->scroll_reveal_mode = source.scroll_reveal_mode;
 	node->scroll_step = source.scroll_step;
 	node->scroll_x = source.scroll_x;
 	node->scroll_y = source.scroll_y;
@@ -1182,6 +1199,7 @@ auto System::reconcile_node(Node *const parent,
 	assign_layout(node->align_content, options.align_content());
 	if (kind_changed) {
 		node->scroll_axis = ScrollAxis::Vertical;
+		node->scroll_reveal_mode = ScrollRevealMode::Minimal;
 		node->scroll_step = 24.0f;
 		node->label.clear();
 		node->icon_name.clear();
@@ -1365,6 +1383,65 @@ auto System::ensure_focus_visible(Node &node) -> void
 	auto *parent { node.parent };
 	while (parent != nullptr) {
 		if (parent->kind == Kind::Scrollable) {
+			auto const is_focusable_descendant = [&](Node const &candidate) {
+				return candidate.scope == active_scope()
+				    && candidate.interactive;
+			};
+			auto const first_focusable_descendant
+			    = [&](Node const &root) -> Node const * {
+				std::vector<Node const *> stack;
+				for (auto it = root.children.rbegin();
+				    it != root.children.rend();
+				    ++it) {
+					stack.push_back(it->get());
+				}
+				while (!stack.empty()) {
+					auto const *current { stack.back() };
+					stack.pop_back();
+					if (current == nullptr) {
+						continue;
+					}
+					if (is_focusable_descendant(*current)) {
+						return current;
+					}
+					for (auto it = current->children.rbegin();
+					    it != current->children.rend();
+					    ++it) {
+						stack.push_back(it->get());
+					}
+				}
+				return nullptr;
+			};
+			auto const last_focusable_descendant
+			    = [&](Node const &root) -> Node const * {
+				std::vector<Node const *> stack;
+				for (auto const &child : root.children) {
+					stack.push_back(child.get());
+				}
+				while (!stack.empty()) {
+					auto const *current { stack.back() };
+					stack.pop_back();
+					if (current == nullptr) {
+						continue;
+					}
+					if (is_focusable_descendant(*current)) {
+						return current;
+					}
+					for (auto const &child : current->children) {
+						stack.push_back(child.get());
+					}
+				}
+				return nullptr;
+			};
+			auto const include_padding {
+				parent->scroll_reveal_mode == ScrollRevealMode::IncludePadding,
+			};
+			auto const *first_focusable {
+				include_padding ? first_focusable_descendant(*parent) : nullptr,
+			};
+			auto const *last_focusable {
+				include_padding ? last_focusable_descendant(*parent) : nullptr,
+			};
 			auto const top {
 				parent->world_rect.position.y() + parent->padding_top,
 			};
@@ -1393,8 +1470,19 @@ auto System::ensure_focus_visible(Node &node) -> void
 			}
 			if ((parent->scroll_axis == ScrollAxis::Vertical
 			        || parent->scroll_axis == ScrollAxis::Both)
+			    && include_padding && first_focusable == &node) {
+				parent->scroll_target_y = 0.0f;
+			}
+			if ((parent->scroll_axis == ScrollAxis::Vertical
+			        || parent->scroll_axis == ScrollAxis::Both)
 			    && node_bottom > bottom) {
 				parent->scroll_target_y += (node_bottom - bottom);
+			}
+			if ((parent->scroll_axis == ScrollAxis::Vertical
+			        || parent->scroll_axis == ScrollAxis::Both)
+			    && include_padding && last_focusable == &node) {
+				parent->scroll_target_y
+				    = std::numeric_limits<float>::infinity();
 			}
 			if ((parent->scroll_axis == ScrollAxis::Horizontal
 			        || parent->scroll_axis == ScrollAxis::Both)
@@ -1403,8 +1491,19 @@ auto System::ensure_focus_visible(Node &node) -> void
 			}
 			if ((parent->scroll_axis == ScrollAxis::Horizontal
 			        || parent->scroll_axis == ScrollAxis::Both)
+			    && include_padding && first_focusable == &node) {
+				parent->scroll_target_x = 0.0f;
+			}
+			if ((parent->scroll_axis == ScrollAxis::Horizontal
+			        || parent->scroll_axis == ScrollAxis::Both)
 			    && node_right > right) {
 				parent->scroll_target_x += (node_right - right);
+			}
+			if ((parent->scroll_axis == ScrollAxis::Horizontal
+			        || parent->scroll_axis == ScrollAxis::Both)
+			    && include_padding && last_focusable == &node) {
+				parent->scroll_target_x
+				    = std::numeric_limits<float>::infinity();
 			}
 
 			auto const max_scroll {
@@ -2704,7 +2803,64 @@ auto System::update_world_node(Node &node,
 	}
 }
 
-auto System::render_node(std::vector<DrawCommand> &draw_list,
+auto System::try_make_render_state(System::RenderNode const &node,
+    Engine::Rect<> const clip_rect,
+    Id const focused_key,
+    float const parent_opacity,
+    bool const parent_pressable_focused,
+    bool const parent_pressable_selected,
+    System::RenderState &out) const -> bool
+{
+	auto const visible_rect { intersect_rects(node.rect, clip_rect) };
+	if (!visible_rect.has_value()) {
+		return false;
+	}
+
+	auto const scope_is_active { [&]() {
+		auto const node_scope { node.scope };
+		if (m_dialog_open) {
+			return node_scope == Scope::Dialog;
+		}
+		if (m_sidebar_open) {
+			return node_scope == Scope::Sidebar;
+		}
+		return node_scope == Scope::Root;
+	}() };
+	out.visible_rect = *visible_rect;
+	out.opacity = std::clamp(parent_opacity * node.opacity, 0.0f, 1.0f);
+	out.focused_here
+	    = scope_is_active && focused_key.valid() && focused_key == node.key;
+	out.selected_here = scope_is_active && m_selected.contains(node.key);
+	out.pressable_focused = node.kind == Kind::Pressable && scope_is_active
+	    ? out.focused_here
+	    : parent_pressable_focused;
+	out.pressable_selected = node.kind == Kind::Pressable && scope_is_active
+	    ? out.selected_here
+	    : parent_pressable_selected;
+	return true;
+}
+
+auto System::render_node_clipped(std::vector<DrawCommand> &draw_list,
+    uint16_t const node_index,
+    Engine::Rect<> const clip_rect,
+    Id const focused_key,
+    float const parent_opacity,
+    bool const parent_pressable_focused,
+    bool const parent_pressable_selected) -> void
+{
+	draw_list.push_back(
+	    DrawCommand { .payload = DrawCommand::PushClip { clip_rect } });
+	render_node(draw_list,
+	    node_index,
+	    clip_rect,
+	    focused_key,
+	    parent_opacity,
+	    parent_pressable_focused,
+	    parent_pressable_selected);
+	draw_list.push_back(DrawCommand { .payload = DrawCommand::PopClip {} });
+}
+
+auto System::render_block(std::vector<DrawCommand> &draw_list,
     uint16_t const node_index,
     Engine::Rect<> const clip_rect,
     Id const focused_key,
@@ -2719,18 +2875,290 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 
 	auto const &node { m_render_nodes[node_index] };
 	auto const key { node.key };
-	auto const &label { *node.label };
-	auto const &icon_name { *node.icon_name };
-	auto node_rect { node.rect };
-	auto const opacity {
-		std::clamp(parent_opacity * node.opacity, 0.0f, 1.0f),
-	};
-
-	auto const visible_rect { intersect_rects(node_rect, clip_rect) };
-	if (!visible_rect.has_value()) {
+	System::RenderState state {};
+	if (!try_make_render_state(node,
+	        clip_rect,
+	        focused_key,
+	        parent_opacity,
+	        parent_pressable_focused,
+	        parent_pressable_selected,
+	        state)) {
 		m_stats.culled_nodes += 1;
 		return;
 	}
+
+	PassBuckets passes {};
+	bool stop_after_self {};
+	emit_node_self_into_passes(passes,
+	    node_index,
+	    focused_key,
+	    parent_opacity,
+	    parent_pressable_focused,
+	    parent_pressable_selected,
+	    stop_after_self);
+
+	if (!stop_after_self) {
+		auto child_index { node.first_child };
+		while (child_index != INVALID_NODE_INDEX) {
+			auto const &child { m_render_nodes[child_index] };
+			if (!intersect_rects(child.rect, state.visible_rect).has_value()) {
+				m_stats.culled_nodes += 1;
+				child_index = child.next_sibling;
+				continue;
+			}
+
+			if (child.kind == Kind::Layer || child.kind == Kind::Scrollable) {
+				passes.flush_into(draw_list);
+				passes = PassBuckets {};
+				render_node(draw_list,
+				    child_index,
+				    state.visible_rect,
+				    focused_key,
+				    state.opacity,
+				    state.pressable_focused,
+				    state.pressable_selected);
+			} else {
+				collect_regular_subtree_into_passes(draw_list,
+				    passes,
+				    child_index,
+				    state.visible_rect,
+				    false,
+				    focused_key,
+				    state.opacity,
+				    state.pressable_focused,
+				    state.pressable_selected);
+			}
+
+			child_index = child.next_sibling;
+		}
+	}
+
+	if (m_debug_bounds && node.kind != Kind::Root) {
+		draw_debug_bounds(passes.overlay,
+		    node_index,
+		    node.rect,
+		    node.depth,
+		    key,
+		    state.visible_rect,
+		    node.kind == Kind::Layer);
+	}
+
+	passes.flush_into(draw_list);
+}
+
+auto System::render_scrollable_block(std::vector<DrawCommand> &draw_list,
+    uint16_t const node_index,
+    Engine::Rect<> const clip_rect,
+    Id const focused_key,
+    float const parent_opacity,
+    bool const parent_pressable_focused,
+    bool const parent_pressable_selected) -> void
+{
+	if (node_index == INVALID_NODE_INDEX
+	    || node_index >= m_render_nodes.size()) {
+		return;
+	}
+
+	auto const &node { m_render_nodes[node_index] };
+	auto const key { node.key };
+	System::RenderState state {};
+	if (!try_make_render_state(node,
+	        clip_rect,
+	        focused_key,
+	        parent_opacity,
+	        parent_pressable_focused,
+	        parent_pressable_selected,
+	        state)) {
+		m_stats.culled_nodes += 1;
+		return;
+	}
+
+	PassBuckets passes {};
+	bool stop_after_self {};
+	emit_node_self_into_passes(passes,
+	    node_index,
+	    focused_key,
+	    parent_opacity,
+	    parent_pressable_focused,
+	    parent_pressable_selected,
+	    stop_after_self);
+
+	auto const viewport_rect { Engine::Rect<> {
+		.position = node.rect.position
+		    + smath::Vec2 { node.padding_left, node.padding_top },
+		.size = smath::Vec2 {
+			std::max(0.0f,
+			    node.rect.size.x() - node.padding_left - node.padding_right),
+			std::max(0.0f,
+			    node.rect.size.y() - node.padding_top - node.padding_bottom),
+		},
+	} };
+	auto const scroll_clip { intersect_rects(
+		viewport_rect, state.visible_rect) };
+	if (scroll_clip.has_value()) {
+		auto child_index { node.first_child };
+		while (child_index != INVALID_NODE_INDEX) {
+			auto const &child { m_render_nodes[child_index] };
+			if (!intersect_rects(child.rect, *scroll_clip).has_value()) {
+				m_stats.culled_nodes += 1;
+				child_index = child.next_sibling;
+				continue;
+			}
+
+			if (child.kind == Kind::Layer || child.kind == Kind::Scrollable) {
+				flush_clipped_passes(draw_list, passes, *scroll_clip);
+				passes = PassBuckets {};
+				render_node_clipped(draw_list,
+				    child_index,
+				    *scroll_clip,
+				    focused_key,
+				    state.opacity,
+				    state.pressable_focused,
+				    state.pressable_selected);
+			} else {
+				collect_regular_subtree_into_passes(draw_list,
+				    passes,
+				    child_index,
+				    *scroll_clip,
+				    true,
+				    focused_key,
+				    state.opacity,
+				    state.pressable_focused,
+				    state.pressable_selected);
+			}
+
+			child_index = child.next_sibling;
+		}
+
+		flush_clipped_passes(draw_list, passes, *scroll_clip);
+	}
+
+	if (m_debug_bounds) {
+		draw_debug_bounds(draw_list,
+		    node_index,
+		    node.rect,
+		    node.depth,
+		    key,
+		    state.visible_rect,
+		    false);
+	}
+}
+
+auto System::collect_regular_subtree_into_passes(
+    std::vector<DrawCommand> &draw_list,
+    PassBuckets &passes,
+    uint16_t const node_index,
+    Engine::Rect<> const clip_rect,
+    bool const hard_clip,
+    Id const focused_key,
+    float const parent_opacity,
+    bool const parent_pressable_focused,
+    bool const parent_pressable_selected) -> void
+{
+	if (node_index == INVALID_NODE_INDEX
+	    || node_index >= m_render_nodes.size()) {
+		return;
+	}
+
+	auto const &node { m_render_nodes[node_index] };
+	auto const key { node.key };
+	System::RenderState state {};
+	if (!try_make_render_state(node,
+	        clip_rect,
+	        focused_key,
+	        parent_opacity,
+	        parent_pressable_focused,
+	        parent_pressable_selected,
+	        state)) {
+		m_stats.culled_nodes += 1;
+		return;
+	}
+
+	bool stop_after_self {};
+	emit_node_self_into_passes(passes,
+	    node_index,
+	    focused_key,
+	    parent_opacity,
+	    parent_pressable_focused,
+	    parent_pressable_selected,
+	    stop_after_self);
+
+	if (!stop_after_self) {
+		auto child_index { node.first_child };
+		while (child_index != INVALID_NODE_INDEX) {
+			auto const &child { m_render_nodes[child_index] };
+			if (!intersect_rects(child.rect, state.visible_rect).has_value()) {
+				m_stats.culled_nodes += 1;
+				child_index = child.next_sibling;
+				continue;
+			}
+
+			if (child.kind == Kind::Layer || child.kind == Kind::Scrollable) {
+				passes.flush_into(draw_list);
+				passes = PassBuckets {};
+				if (hard_clip) {
+					render_node_clipped(draw_list,
+					    child_index,
+					    state.visible_rect,
+					    focused_key,
+					    state.opacity,
+					    state.pressable_focused,
+					    state.pressable_selected);
+				} else {
+					render_node(draw_list,
+					    child_index,
+					    state.visible_rect,
+					    focused_key,
+					    state.opacity,
+					    state.pressable_focused,
+					    state.pressable_selected);
+				}
+			} else {
+				collect_regular_subtree_into_passes(draw_list,
+				    passes,
+				    child_index,
+				    state.visible_rect,
+				    hard_clip,
+				    focused_key,
+				    state.opacity,
+				    state.pressable_focused,
+				    state.pressable_selected);
+			}
+
+			child_index = child.next_sibling;
+		}
+	}
+
+	if (m_debug_bounds && node.kind != Kind::Root) {
+		draw_debug_bounds(passes.overlay,
+		    node_index,
+		    node.rect,
+		    node.depth,
+		    key,
+		    state.visible_rect,
+		    node.kind == Kind::Layer);
+	}
+}
+
+auto System::emit_node_self_into_passes(PassBuckets &passes,
+    uint16_t const node_index,
+    Id const focused_key,
+    float const parent_opacity,
+    bool const parent_pressable_focused,
+    bool const parent_pressable_selected,
+    bool &stop_after_self) -> void
+{
+	if (node_index == INVALID_NODE_INDEX
+	    || node_index >= m_render_nodes.size()) {
+		return;
+	}
+
+	auto const &node { m_render_nodes[node_index] };
+	auto const &label { *node.label };
+	auto const &icon_name { *node.icon_name };
+	auto const opacity {
+		std::clamp(parent_opacity * node.opacity, 0.0f, 1.0f),
+	};
 
 	m_stats.rendered_nodes += 1;
 
@@ -2744,10 +3172,12 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 		}
 		return node_scope == Scope::Root;
 	}() };
-
-	auto const focused_here { scope_is_active && focused_key.valid()
-		&& focused_key == key };
-	auto const selected_here { scope_is_active && m_selected.contains(key) };
+	auto const focused_here {
+		scope_is_active && focused_key.valid() && focused_key == node.key,
+	};
+	auto const selected_here {
+		scope_is_active && m_selected.contains(node.key),
+	};
 	auto const pressable_focused {
 		node.kind == Kind::Pressable && scope_is_active
 		    ? focused_here
@@ -2768,23 +3198,16 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			    = choose_color(node.selected_text_color, m_theme.on_primary);
 		}
 		text_color = color_with_alpha(text_color, text_color.w() * opacity);
-		draw_list.push_back(DrawCommand { .payload = DrawCommand::Text {
-		                                      .value = std::string_view(label),
-		                                      .box = node.rect,
-		                                      .size = node.text_size,
-		                                      .color = text_color,
-		                                      .align_x = node.text_align_x,
-		                                      .align_y = node.text_align_y,
-		                                  } });
-		if (m_debug_bounds) {
-			draw_debug_bounds(draw_list,
-			    node_index,
-			    node.rect,
-			    node.depth,
-			    key,
-			    *visible_rect,
-			    false);
-		}
+		passes.text.push_back(
+		    DrawCommand { .payload = DrawCommand::Text {
+		                      .value = std::string_view(label),
+		                      .box = node.rect,
+		                      .size = node.text_size,
+		                      .color = text_color,
+		                      .align_x = node.text_align_x,
+		                      .align_y = node.text_align_y,
+		                  } });
+		stop_after_self = true;
 		return;
 	}
 
@@ -2800,7 +3223,8 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 		}
 		if (node.draw_fill) {
 			fill = color_with_alpha(fill, fill.w() * opacity);
-			draw_rounded_fill(draw_list, node.rect, fill, node.corner_radius);
+			draw_rounded_fill(
+			    passes.shapes, node.rect, fill, node.corner_radius);
 		}
 		if (node.draw_outline) {
 			auto const outline {
@@ -2809,7 +3233,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			auto const faded_outline {
 				color_with_alpha(outline, outline.w() * opacity),
 			};
-			draw_list.push_back(DrawCommand {
+			passes.shapes.push_back(DrawCommand {
 			    .payload = DrawCommand::Line {
 			        .start = node.rect.position,
 			        .end = node.rect.position
@@ -2817,7 +3241,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			        .thickness = node.outline_thickness,
 			        .color = faded_outline,
 			    } });
-			draw_list.push_back(DrawCommand {
+			passes.shapes.push_back(DrawCommand {
 			    .payload = DrawCommand::Line {
 			        .start = node.rect.position
 			            + smath::Vec2 { node.rect.size.x(), 0.0f },
@@ -2825,7 +3249,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			        .thickness = node.outline_thickness,
 			        .color = faded_outline,
 			    } });
-			draw_list.push_back(DrawCommand {
+			passes.shapes.push_back(DrawCommand {
 			    .payload = DrawCommand::Line {
 			        .start = node.rect.position + node.rect.size,
 			        .end = node.rect.position
@@ -2833,7 +3257,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			        .thickness = node.outline_thickness,
 			        .color = faded_outline,
 			    } });
-			draw_list.push_back(DrawCommand {
+			passes.shapes.push_back(DrawCommand {
 			    .payload = DrawCommand::Line {
 			        .start = node.rect.position
 			            + smath::Vec2 { 0.0f, node.rect.size.y() },
@@ -2857,7 +3281,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 		if (m_icon_image_id != 0u) {
 			auto const icon_it { m_icon_rects.find(icon_name) };
 			if (icon_it != m_icon_rects.end()) {
-				draw_list.push_back(DrawCommand { .payload = DrawCommand::Image {
+				passes.icons.push_back(DrawCommand { .payload = DrawCommand::Image {
 				                               .image_id = m_icon_image_id,
 				                               .src = icon_it->second,
 				                               .dst = Engine::Rect<> {
@@ -2872,7 +3296,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			}
 		}
 		if (!icon_drawn) {
-			draw_list.push_back(DrawCommand { .payload = DrawCommand::Rect {
+			passes.shapes.push_back(DrawCommand { .payload = DrawCommand::Rect {
 			                               .rect = Engine::Rect<> {
 			                                   .position = node.rect.position,
 			                                   .size = smath::Vec2 {
@@ -2882,17 +3306,9 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 			                               .color = color_with_alpha(
 			                                   m_theme.outline,
 			                                   m_theme.outline.w() * opacity),
-		                           } });
+			                           } });
 		}
-		if (m_debug_bounds) {
-			draw_debug_bounds(draw_list,
-			    node_index,
-			    node.rect,
-			    node.depth,
-			    key,
-			    *visible_rect,
-			    false);
-		}
+		stop_after_self = true;
 		return;
 	}
 
@@ -2905,94 +3321,122 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 				scrim = color_with_alpha(scrim, m_sidebar_progress * scrim.w());
 			}
 			scrim = color_with_alpha(scrim, scrim.w() * opacity);
-			draw_list.push_back(DrawCommand { .payload = DrawCommand::Rect {
-			                                      .rect = m_window_rect,
-			                                      .color = scrim,
-			                                  } });
+			passes.shapes.push_back(DrawCommand { .payload = DrawCommand::Rect {
+			                                          .rect = m_window_rect,
+			                                          .color = scrim,
+			                                      } });
 		}
 		if (node.draw_fill) {
 			auto const fill { color_with_alpha(
 				choose_color(node.fill_color, m_theme.surface),
 				choose_color(node.fill_color, m_theme.surface).w() * opacity) };
-			draw_rounded_fill(draw_list, node.rect, fill, node.corner_radius);
+			draw_rounded_fill(
+			    passes.shapes, node.rect, fill, node.corner_radius);
 		}
 	}
 
 	if (node.kind == Kind::Scrollable) {
-		auto const viewport_rect { Engine::Rect<> {
-			.position = node.rect.position
-			    + smath::Vec2 { node.padding_left, node.padding_top },
-			.size = smath::Vec2 {
-				std::max(0.0f,
-				    node.rect.size.x() - node.padding_left - node.padding_right),
-				std::max(0.0f,
-				    node.rect.size.y() - node.padding_top - node.padding_bottom),
-			},
-		} };
-		auto const scroll_clip { intersect_rects(
-			viewport_rect, *visible_rect) };
-		if (!scroll_clip.has_value()) {
-			return;
-		}
-		draw_list.push_back(
-		    DrawCommand { .payload = DrawCommand::PushClip { *scroll_clip } });
-		auto child_index { node.first_child };
-		while (child_index != INVALID_NODE_INDEX) {
-			auto const &child { m_render_nodes[child_index] };
-			if (!intersect_rects(child.rect, *scroll_clip).has_value()) {
-				m_stats.culled_nodes += 1;
-				child_index = child.next_sibling;
-				continue;
-			}
-			render_node(draw_list,
-			    child_index,
-			    *scroll_clip,
-			    focused_key,
-			    opacity,
-			    pressable_focused,
-			    pressable_selected);
-			child_index = child.next_sibling;
-		}
-		draw_list.push_back(DrawCommand { .payload = DrawCommand::PopClip {} });
-		if (m_debug_bounds) {
-			draw_debug_bounds(draw_list,
-			    node_index,
-			    node.rect,
-			    node.depth,
-			    key,
-			    *visible_rect,
-			    false);
-		}
+		stop_after_self = false;
 		return;
 	}
 
-	auto child_index { node.first_child };
-	while (child_index != INVALID_NODE_INDEX) {
-		auto const &child { m_render_nodes[child_index] };
-		if (!intersect_rects(child.rect, *visible_rect).has_value()) {
-			m_stats.culled_nodes += 1;
-			child_index = child.next_sibling;
-			continue;
+	if (node.kind == Kind::Pressable) {
+		if (node.draw_fill) {
+			auto fill { choose_color(
+				node.fill_color, m_theme.surface_variant) };
+			if (pressable_selected) {
+				fill = choose_color(node.selected_fill_color, m_theme.primary);
+			} else if (pressable_focused) {
+				fill = choose_color(node.focus_fill_color,
+				    mix_color(fill, m_theme.primary, 0.20f));
+			}
+			fill = color_with_alpha(fill, fill.w() * opacity);
+			draw_rounded_fill(
+			    passes.shapes, node.rect, fill, node.corner_radius);
 		}
-		render_node(draw_list,
-		    child_index,
-		    *visible_rect,
-		    focused_key,
-		    opacity,
-		    pressable_focused,
-		    pressable_selected);
-		child_index = child.next_sibling;
+		if (node.draw_outline) {
+			auto const outline {
+				choose_color(node.outline_color, m_theme.outline),
+			};
+			auto const faded_outline {
+				color_with_alpha(outline, outline.w() * opacity),
+			};
+			passes.shapes.push_back(DrawCommand {
+			    .payload = DrawCommand::Line {
+			        .start = node.rect.position,
+			        .end = node.rect.position
+			            + smath::Vec2 { node.rect.size.x(), 0.0f },
+			        .thickness = node.outline_thickness,
+			        .color = faded_outline,
+			    } });
+			passes.shapes.push_back(DrawCommand {
+			    .payload = DrawCommand::Line {
+			        .start = node.rect.position
+			            + smath::Vec2 { node.rect.size.x(), 0.0f },
+			        .end = node.rect.position + node.rect.size,
+			        .thickness = node.outline_thickness,
+			        .color = faded_outline,
+			    } });
+			passes.shapes.push_back(DrawCommand {
+			    .payload = DrawCommand::Line {
+			        .start = node.rect.position + node.rect.size,
+			        .end = node.rect.position
+			            + smath::Vec2 { 0.0f, node.rect.size.y() },
+			        .thickness = node.outline_thickness,
+			        .color = faded_outline,
+			    } });
+			passes.shapes.push_back(DrawCommand {
+			    .payload = DrawCommand::Line {
+			        .start = node.rect.position
+			            + smath::Vec2 { 0.0f, node.rect.size.y() },
+			        .end = node.rect.position,
+			        .thickness = node.outline_thickness,
+			        .color = faded_outline,
+			    } });
+		}
 	}
 
-	if (m_debug_bounds && node.kind != Kind::Root) {
-		draw_debug_bounds(draw_list,
-		    node_index,
-		    node.rect,
-		    node.depth,
-		    key,
-		    *visible_rect,
-		    node.kind == Kind::Layer);
+	if (node.kind == Kind::Flex || node.kind == Kind::Root
+	    || node.kind == Kind::Spacer || node.kind == Kind::Memo) {
+		stop_after_self = false;
+		return;
 	}
+
+	stop_after_self = false;
+}
+
+auto System::render_node(std::vector<DrawCommand> &draw_list,
+    uint16_t const node_index,
+    Engine::Rect<> const clip_rect,
+    Id const focused_key,
+    float const parent_opacity,
+    bool const parent_pressable_focused,
+    bool const parent_pressable_selected) -> void
+{
+	if (node_index == INVALID_NODE_INDEX
+	    || node_index >= m_render_nodes.size()) {
+		return;
+	}
+
+	auto const &node { m_render_nodes[node_index] };
+	if (node.kind == Kind::Scrollable) {
+		render_scrollable_block(draw_list,
+		    node_index,
+		    clip_rect,
+		    focused_key,
+		    parent_opacity,
+		    parent_pressable_focused,
+		    parent_pressable_selected);
+		return;
+	}
+
+	render_block(draw_list,
+	    node_index,
+	    clip_rect,
+	    focused_key,
+	    parent_opacity,
+	    parent_pressable_focused,
+	    parent_pressable_selected);
 }
 
 auto System::draw_debug_bounds(std::vector<DrawCommand> &draw_list,

@@ -117,6 +117,22 @@ struct WindowFrameOutput
 	std::vector<DrawCommand> draw_list {};
 };
 
+struct PassBuckets
+{
+	std::vector<DrawCommand> shapes {};
+	std::vector<DrawCommand> text {};
+	std::vector<DrawCommand> icons {};
+	std::vector<DrawCommand> overlay {};
+
+	auto flush_into(std::vector<DrawCommand> &out) const -> void
+	{
+		out.insert(out.end(), shapes.begin(), shapes.end());
+		out.insert(out.end(), text.begin(), text.end());
+		out.insert(out.end(), icons.begin(), icons.end());
+		out.insert(out.end(), overlay.begin(), overlay.end());
+	}
+};
+
 class System
 {
 public:
@@ -374,6 +390,60 @@ private:
 	auto measure_node(Node const &node, float available_width = 0.0f) const
 	    -> MeasuredSize;
 	auto measure_leaf(Node const &node) const -> MeasuredSize;
+	struct RenderState
+	{
+		Engine::Rect<> visible_rect {};
+		float opacity {};
+		bool focused_here {};
+		bool selected_here {};
+		bool pressable_focused {};
+		bool pressable_selected {};
+	};
+	auto try_make_render_state(RenderNode const &node,
+	    Engine::Rect<> clip_rect,
+	    Id focused_key,
+	    float parent_opacity,
+	    bool parent_pressable_focused,
+	    bool parent_pressable_selected,
+	    RenderState &out) const -> bool;
+	auto render_node_clipped(std::vector<DrawCommand> &draw_list,
+	    uint16_t node_index,
+	    Engine::Rect<> clip_rect,
+	    Id focused_key,
+	    float parent_opacity,
+	    bool parent_pressable_focused,
+	    bool parent_pressable_selected) -> void;
+	auto render_block(std::vector<DrawCommand> &draw_list,
+	    uint16_t const node_index,
+	    Engine::Rect<> const clip_rect,
+	    Id const focused_key,
+	    float const parent_opacity,
+	    bool const parent_pressable_focused,
+	    bool const parent_pressable_selected) -> void;
+	auto render_scrollable_block(std::vector<DrawCommand> &draw_list,
+	    uint16_t const node_index,
+	    Engine::Rect<> const clip_rect,
+	    Id const focused_key,
+	    float const parent_opacity,
+	    bool const parent_pressable_focused,
+	    bool const parent_pressable_selected) -> void;
+	auto collect_regular_subtree_into_passes(
+	    std::vector<DrawCommand> &draw_list,
+	    PassBuckets &passes,
+	    uint16_t const node_index,
+	    Engine::Rect<> const clip_rect,
+	    bool const hard_clip,
+	    Id const focused_key,
+	    float const parent_opacity,
+	    bool const parent_pressable_focused,
+	    bool const parent_pressable_selected) -> void;
+	auto emit_node_self_into_passes(PassBuckets &passes,
+	    uint16_t const node_index,
+	    Id const focused_key,
+	    float const parent_opacity,
+	    bool const parent_pressable_focused,
+	    bool const parent_pressable_selected,
+	    bool &stop_after_self) -> void;
 	auto render_node(std::vector<DrawCommand> &draw_list,
 	    uint16_t const node_index,
 	    Engine::Rect<> const clip_rect,

@@ -339,6 +339,13 @@ auto ScrollOptions::Builder::both() -> Builder &
 	return *this;
 }
 
+auto ScrollOptions::Builder::reveal_mode(ScrollRevealMode const value)
+    -> Builder &
+{
+	m_options.m_reveal_mode = value;
+	return *this;
+}
+
 auto ScrollOptions::Builder::step(float const value) -> Builder &
 {
 	m_options.m_step = value;
@@ -897,6 +904,7 @@ auto Context::scrollable(
 	auto *node { push_node(
 		Kind::Scrollable, key, m_scope, options.as_flex_options()) };
 	assign_layout(node->scroll_axis, options.axis(), m_system);
+	assign_layout(node->scroll_reveal_mode, options.reveal_mode(), m_system);
 	assign_world(node->scroll_step, options.step(), m_system);
 	assign_layout(node->max_width, options.max_width(), m_system);
 	assign_layout(node->max_height, options.max_height(), m_system);
