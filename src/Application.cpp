@@ -148,8 +148,10 @@ auto Application::on_update(float const dt) -> void
 	    });
 
 	m_gui.compose([&](Gui::Context &ui) {
-		auto toast { Gui::components::toast(ui, Gui::id("status_toast")) };
-		ui.flex(Gui::id("root"),
+		auto toast {
+			Gui::components::Toast::builder(ui, "status_toast").build(),
+		};
+		ui.flex(ui.id("root"),
 		    Gui::FlexOptions::builder()
 		        .column()
 		        .padding(std::array<float, 4> { 10.0f, 10.0f, 0.0f, 10.0f })
@@ -157,76 +159,77 @@ auto Application::on_update(float const dt) -> void
 		        .flex(1.0f)
 		        .build(),
 		    [&](Gui::Context &ctx) {
-			    ctx.text(Gui::id("title"),
+			    ctx.text(ctx.id("title"),
 			        "MaterialFM",
 			        Gui::TextStyle::builder()
 			            .size(20.0f)
 			            .color(m_gui.theme().on_surface)
 			            .selected_color(m_gui.theme().on_primary)
 			            .build());
-			    ctx.text(Gui::id("hint"),
+			    ctx.text(ctx.id("hint"),
 			        "Hello there!",
 			        Gui::TextStyle::builder()
 			            .size(12.0f)
 			            .color(m_gui.theme().on_surface_variant)
 			            .selected_color(m_gui.theme().on_primary)
 			            .build());
-			    ctx.memo(Gui::id("library_memo"),
+			    ctx.memo(ctx.id("library_memo"),
 			        0xA11CEu,
 			        [&](Gui::Context &memo_ctx) {
-				        memo_ctx.scrollable(Gui::id("library"),
+				        memo_ctx.scrollable(memo_ctx.id("library"),
 				            Gui::ScrollOptions::builder().build(),
 				            [&](Gui::Context &scroll) {
-					            scroll.flex(Gui::id("library_list"),
+					            scroll.flex(scroll.id("library_list"),
 					                Gui::FlexOptions::builder()
 					                    .column()
 					                    .gap(4.0f)
 					                    .build(),
 					                [&](Gui::Context &list) {
-						                Gui::components::button(
-						                    list,
-						                    Gui::id("track_1"),
-						                    "Track 1",
-						                    std::nullopt,
-						                    [&]() { },
-						                    true);
+						                Gui::components::Button::builder(
+						                    list, "track_1")
+						                    .label("Track 1")
+						                    .on_activate([&]() { })
+						                    .selectable(true)
+						                    .build();
 						                for (int i = 2; i < 10; i++) {
-							                Gui::components::button(
+							                Gui::components::Button::builder(
 							                    list,
-							                    std::format("track_{}", i),
-							                    std::format("Track {}", i),
-							                    std::nullopt,
-							                    [&]() { },
-							                    true);
+							                    std::format("track_{}", i))
+							                    .label(
+							                        std::format("Track {}", i))
+							                    .on_activate([&]() { })
+							                    .selectable(true)
+							                    .build();
 						                }
-						                list.spacer(Gui::id("spacer"), 10.0f);
+						                list.spacer(list.id("spacer"), 10.0f);
 					                });
 				            });
 			        });
 		    });
 
-		Gui::components::sidebar(ui,
-		    Gui::id("drawer"),
-		    Gui::FlexOptions::builder()
-		        .column()
-		        .padding(10.0f)
-		        .gap(8.0f)
-		        .build(),
-		    [&](Gui::Context &drawer) {
+		Gui::components::Sidebar::builder(ui, "drawer")
+		    .options(Gui::FlexOptions::builder()
+		            .column()
+		            .padding(10.0f)
+		            .gap(8.0f)
+		            .build())
+		    .content([&](Gui::Context &drawer) {
 			    for (auto const &part : m_partitions) {
-				    Gui::components::button(drawer,
-				        std::format("btn_{}", part),
-				        part,
-				        icon_for_partition(part));
+				    Gui::components::Button::builder(
+				        drawer, std::format("btn_{}", part))
+				        .label(part)
+				        .icon(icon_for_partition(part))
+				        .build();
 			    }
 
-			    Gui::components::button(drawer,
-			        Gui::id("drawer_settings"),
-			        "Settings",
-			        "settings",
-			        [toast]() { toast.show("Settings unimplemented"); });
+			    Gui::components::Button::builder(drawer, "drawer_settings")
+			        .label("Settings")
+			        .icon("settings")
+			        .on_activate(
+			            [toast]() { toast.show("Settings unimplemented"); })
+			        .build();
 
-			    drawer.flex(Gui::id("counter_controls"),
+			    drawer.flex(drawer.id("counter_controls"),
 			        Gui::FlexOptions::builder().row().gap(6.0f).build(),
 			        [&](Gui::Context &controls) {
 				        auto counter {
@@ -242,58 +245,56 @@ auto Application::on_update(float const dt) -> void
 				                .align_y(Gui::TextAlignY::Center)
 				                .build());
 
-				        Gui::components::button(
-				            controls,
-				            controls.new_id(),
-				            "-",
-				            std::nullopt,
-				            [counter]() {
+				        Gui::components::Button::builder(
+				            controls, controls.new_id())
+				            .label("-")
+				            .on_activate([counter]() {
 					            counter.update([](int &value) { value -= 1; });
-				            },
-				            false,
-				            Gui::FlexOptions::builder().flex(1.0f).build(),
-				            Gui::components::ButtonStyle {
-				                .text_align_x = Gui::TextAlignX::Center,
-				            });
+				            })
+				            .options(
+				                Gui::FlexOptions::builder().flex(1.0f).build())
+				            .style(Gui::components::ButtonStyle::builder()
+				                    .text_align_x(Gui::TextAlignX::Center)
+				                    .build())
+				            .build();
 
-				        Gui::components::button(
-				            controls,
-				            controls.new_id(),
-				            "+",
-				            std::nullopt,
-				            [counter]() {
+				        Gui::components::Button::builder(
+				            controls, controls.new_id())
+				            .label("+")
+				            .on_activate([counter]() {
 					            counter.update([](int &value) { value += 1; });
-				            },
-				            false,
-				            Gui::FlexOptions::builder().flex(1.0f).build(),
-				            Gui::components::ButtonStyle {
-				                .text_align_x = Gui::TextAlignX::Center,
-				            });
+				            })
+				            .options(
+				                Gui::FlexOptions::builder().flex(1.0f).build())
+				            .style(Gui::components::ButtonStyle::builder()
+				                    .text_align_x(Gui::TextAlignX::Center)
+				                    .build())
+				            .build();
 			        });
-		    });
+		    })
+		    .build();
 
-		Gui::components::dialog(ui,
-		    Gui::id("actions_dialog"),
-		    Gui::FlexOptions::builder()
-		        .column()
-		        .padding(12.0f)
-		        .gap(8.0f)
-		        .min_width(200.0f)
-		        .build(),
-		    [&](Gui::Context &dialog) {
-			    dialog.text(Gui::id("dialog_title"),
+		Gui::components::Dialog::builder(ui, "actions_dialog")
+		    .options(Gui::FlexOptions::builder()
+		            .column()
+		            .padding(12.0f)
+		            .gap(8.0f)
+		            .min_width(200.0f)
+		            .build())
+		    .content([&](Gui::Context &dialog) {
+			    dialog.text(dialog.id("dialog_title"),
 			        "Actions",
 			        Gui::TextStyle::builder()
 			            .size(17.0f)
 			            .color(m_gui.theme().on_surface)
 			            .selected_color(m_gui.theme().on_primary)
 			            .build());
-			    Gui::components::button(dialog,
-			        Gui::id("dialog_close"),
-			        "Close",
-			        std::nullopt,
-			        [&]() { m_gui.set_dialog_open(false); });
-		    });
+			    Gui::components::Button::builder(dialog, "dialog_close")
+			        .label("Close")
+			        .on_activate([&]() { m_gui.set_dialog_open(false); })
+			        .build();
+		    })
+		    .build();
 	});
 
 	renderer().start_frame();

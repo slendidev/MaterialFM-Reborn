@@ -16,6 +16,48 @@ auto animated_value_fallback(FlexOptions::AnimatedFloat const &value) -> float
 	}
 	return std::get<Animation::Ref>(value).fallback;
 }
+
+template<typename T>
+auto assign_layout(T &field, T value, System &system) -> void
+{
+	if constexpr (requires(T const &a, T const &b) {
+		              { a == b } -> std::convertible_to<bool>;
+	              }) {
+		if (field == value) {
+			return;
+		}
+	}
+	field = std::move(value);
+	system.mark_layout_change();
+}
+
+template<typename T>
+auto assign_visual(T &field, T value, System &system) -> void
+{
+	if constexpr (requires(T const &a, T const &b) {
+		              { a == b } -> std::convertible_to<bool>;
+	              }) {
+		if (field == value) {
+			return;
+		}
+	}
+	field = std::move(value);
+	system.mark_visual_change();
+}
+
+template<typename T>
+auto assign_world(T &field, T value, System &system) -> void
+{
+	if constexpr (requires(T const &a, T const &b) {
+		              { a == b } -> std::convertible_to<bool>;
+	              }) {
+		if (field == value) {
+			return;
+		}
+	}
+	field = std::move(value);
+	system.request_world();
+}
 } // namespace
 
 auto FlexOptions::builder() -> Builder
@@ -649,13 +691,14 @@ auto Context::text(Id const key,
     FlexOptions const &options) -> void
 {
 	auto *node { push_node(Kind::Text, key, m_scope, options) };
-	node->label = std::string(label);
-	node->text_size = style.size;
-	node->text_align_x = style.align_x;
-	node->text_align_y = style.align_y;
-	node->use_pressable_state = style.use_pressable_state;
-	node->text_color = style.color;
-	node->selected_text_color = style.selected_color;
+	assign_layout(node->label, std::string(label), m_system);
+	assign_layout(node->text_size, style.size, m_system);
+	assign_visual(node->text_align_x, style.align_x, m_system);
+	assign_visual(node->text_align_y, style.align_y, m_system);
+	assign_visual(
+	    node->use_pressable_state, style.use_pressable_state, m_system);
+	assign_visual(node->text_color, style.color, m_system);
+	assign_visual(node->selected_text_color, style.selected_color, m_system);
 	pop_node();
 }
 
@@ -664,18 +707,19 @@ auto Context::text(std::string_view const key,
     TextStyle style,
     FlexOptions const &options) -> void
 {
-	text(id(key), label, style, options);
+	text(this->id(key), label, style, options);
 }
 
 auto Context::icon(
     Id const key, std::string_view const icon_name, IconStyle style) -> void
 {
 	auto *node { push_node(Kind::Icon, key, m_scope) };
-	node->icon_name = std::string(icon_name);
-	node->icon_size = style.size;
-	node->use_pressable_state = style.use_pressable_state;
-	node->icon_tint = style.tint;
-	node->selected_icon_tint = style.selected_tint;
+	assign_visual(node->icon_name, std::string(icon_name), m_system);
+	assign_layout(node->icon_size, style.size, m_system);
+	assign_visual(
+	    node->use_pressable_state, style.use_pressable_state, m_system);
+	assign_visual(node->icon_tint, style.tint, m_system);
+	assign_visual(node->selected_icon_tint, style.selected_tint, m_system);
 	pop_node();
 }
 
@@ -683,7 +727,7 @@ auto Context::icon(std::string_view const key,
     std::string_view const icon_name,
     IconStyle style) -> void
 {
-	icon(id(key), icon_name, style);
+	icon(this->id(key), icon_name, style);
 }
 
 auto Context::surface(Id const key,
@@ -692,15 +736,17 @@ auto Context::surface(Id const key,
     ComposeFn const &fn) -> void
 {
 	auto *node { push_node(Kind::Surface, key, m_scope, options) };
-	node->draw_fill = style.draw_fill;
-	node->draw_outline = style.draw_outline;
-	node->use_pressable_state = style.use_pressable_state;
-	node->corner_radius = style.radius;
-	node->outline_thickness = style.outline_thickness;
-	node->fill_color = style.fill_color;
-	node->focus_fill_color = style.focus_fill_color;
-	node->selected_fill_color = style.selected_fill_color;
-	node->outline_color = style.outline_color;
+	assign_visual(node->draw_fill, style.draw_fill, m_system);
+	assign_visual(node->draw_outline, style.draw_outline, m_system);
+	assign_visual(
+	    node->use_pressable_state, style.use_pressable_state, m_system);
+	assign_visual(node->corner_radius, style.radius, m_system);
+	assign_visual(node->outline_thickness, style.outline_thickness, m_system);
+	assign_visual(node->fill_color, style.fill_color, m_system);
+	assign_visual(node->focus_fill_color, style.focus_fill_color, m_system);
+	assign_visual(
+	    node->selected_fill_color, style.selected_fill_color, m_system);
+	assign_visual(node->outline_color, style.outline_color, m_system);
 	fn(*this);
 	pop_node();
 }
@@ -710,7 +756,7 @@ auto Context::surface(std::string_view const key,
     SurfaceStyle const style,
     ComposeFn const &fn) -> void
 {
-	surface(id(key), options, style, fn);
+	surface(this->id(key), options, style, fn);
 }
 
 auto Context::pressable(Id const key,
@@ -720,8 +766,8 @@ auto Context::pressable(Id const key,
     ComposeFn const &fn) -> void
 {
 	auto *node { push_node(Kind::Pressable, key, m_scope, options) };
-	node->interactive = true;
-	node->selectable = selectable;
+	assign_visual(node->interactive, true, m_system);
+	assign_visual(node->selectable, selectable, m_system);
 	node->on_activate = std::move(on_activate);
 	fn(*this);
 	pop_node();
@@ -733,7 +779,7 @@ auto Context::pressable(std::string_view const key,
     bool const selectable,
     ComposeFn const &fn) -> void
 {
-	pressable(id(key), options, std::move(on_activate), selectable, fn);
+	pressable(this->id(key), options, std::move(on_activate), selectable, fn);
 }
 
 auto Context::layer(Id const key,
@@ -746,12 +792,12 @@ auto Context::layer(Id const key,
 	m_scope = presentation == LayerPresentation::Modal ? Scope::Dialog
 	                                                   : Scope::Sidebar;
 	auto *node { push_node(Kind::Layer, key, m_scope, options) };
-	node->layer_presentation = presentation;
-	node->draw_scrim = style.draw_scrim;
-	node->scrim_color = style.scrim_color;
-	node->draw_fill = style.draw_fill;
-	node->corner_radius = style.radius;
-	node->fill_color = style.fill_color;
+	assign_visual(node->layer_presentation, presentation, m_system);
+	assign_visual(node->draw_scrim, style.draw_scrim, m_system);
+	assign_visual(node->scrim_color, style.scrim_color, m_system);
+	assign_visual(node->draw_fill, style.draw_fill, m_system);
+	assign_visual(node->corner_radius, style.radius, m_system);
+	assign_visual(node->fill_color, style.fill_color, m_system);
 	fn(*this);
 	pop_node();
 	m_scope = previous_scope;
@@ -763,7 +809,7 @@ auto Context::layer(std::string_view const key,
     LayerStyle const style,
     ComposeFn const &fn) -> void
 {
-	layer(id(key), presentation, options, style, fn);
+	layer(this->id(key), presentation, options, style, fn);
 }
 
 auto Context::memo(Id const key, uint32_t const deps_hash, ComposeFn const &fn)
@@ -783,19 +829,19 @@ auto Context::memo(
     std::string_view const key, uint32_t const deps_hash, ComposeFn const &fn)
     -> void
 {
-	memo(id(key), deps_hash, fn);
+	memo(this->id(key), deps_hash, fn);
 }
 
 auto Context::spacer(Id const key, float const height) -> void
 {
 	auto *node { push_node(Kind::Spacer, key, m_scope) };
-	node->fixed_height = height;
+	assign_layout(node->fixed_height, height, m_system);
 	pop_node();
 }
 
 auto Context::spacer(std::string_view const key, float const height) -> void
 {
-	spacer(id(key), height);
+	spacer(this->id(key), height);
 }
 
 auto Context::flex(
@@ -810,7 +856,7 @@ auto Context::flex(
     std::string_view const key, FlexOptions const &options, ComposeFn const &fn)
     -> void
 {
-	flex(id(key), options, fn);
+	flex(this->id(key), options, fn);
 }
 
 auto Context::scrollable(
@@ -818,10 +864,10 @@ auto Context::scrollable(
 {
 	auto *node { push_node(
 		Kind::Scrollable, key, m_scope, options.as_flex_options()) };
-	node->scroll_axis = options.axis();
-	node->scroll_step = options.step();
-	node->max_width = options.max_width();
-	node->max_height = options.max_height();
+	assign_layout(node->scroll_axis, options.axis(), m_system);
+	assign_world(node->scroll_step, options.step(), m_system);
+	assign_layout(node->max_width, options.max_width(), m_system);
+	assign_layout(node->max_height, options.max_height(), m_system);
 	fn(*this);
 	pop_node();
 }
@@ -830,7 +876,7 @@ auto Context::scrollable(std::string_view const key,
     ScrollOptions const &options,
     ComposeFn const &fn) -> void
 {
-	scrollable(id(key), options, fn);
+	scrollable(this->id(key), options, fn);
 }
 
 auto Context::sidebar_open() const -> bool
@@ -882,13 +928,18 @@ auto Context::sample_animation(Animation::Ref const &ref) -> float
 	return m_system.sample_animation_ref(ref, m_current->key);
 }
 
+auto Context::id(std::string_view const key) -> Id
+{
+	return m_system.id(key);
+}
+
 auto Context::new_id(std::string_view const prefix) -> std::string
 {
 	auto const base {
 		(prefix.empty() ? std::string { "id" } : std::string { prefix }),
 	};
 	auto const scope_key {
-		m_current != nullptr ? std::format("{:08x}", m_current->key.value)
+		m_current != nullptr ? std::string { m_current->key.label() }
 		                     : std::string { "root" },
 	};
 	auto const counter_key { scope_key + "/@id/" + base };

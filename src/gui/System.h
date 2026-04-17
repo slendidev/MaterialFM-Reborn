@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -142,6 +143,12 @@ public:
 
 	System();
 
+	auto id(std::string_view value) const -> Id;
+	auto compose_id(Id parent, Id child) const -> Id;
+	auto compose_id(Id parent, std::string_view child) const -> Id;
+	auto state_id(Id parent, Id local_key) const -> Id;
+	auto tween_id(Id owner, std::string_view local_key) const -> Id;
+
 	auto begin_frame(
 	    WindowHandle handle, Input input, float dt, Engine::Rect<> rect)
 	    -> void;
@@ -156,6 +163,17 @@ public:
 			m_recompose_requested_during_compose = true;
 		}
 	}
+	auto request_layout() -> void
+	{
+		m_layout_dirty = true;
+		m_visual_dirty = true;
+	}
+	auto request_world() -> void
+	{
+		m_world_dirty = true;
+		m_visual_dirty = true;
+	}
+	auto request_visual() -> void { m_visual_dirty = true; }
 	auto sidebar_open() const -> bool { return m_sidebar_open; }
 	auto dialog_open() const -> bool { return m_dialog_open; }
 	auto sidebar_visible() const -> bool
@@ -236,9 +254,38 @@ public:
 	    Scope scope,
 	    Id key,
 	    FlexOptions const &options) -> Node *;
+	auto mark_structure_change() -> void;
+	auto mark_layout_change() -> void;
+	auto mark_visual_change() -> void;
 
 private:
 	static constexpr size_t NODE_POOL_MAX { 256 };
+	static constexpr std::string_view STATE_SEGMENT { "@state" };
+	static constexpr std::string_view TWEEN_SEGMENT { "@tween" };
+
+	struct IdRegistry
+	{
+		struct TransparentHash
+		{
+			using is_transparent = void;
+
+			auto operator()(std::string_view value) const noexcept -> size_t
+			{
+				return std::hash<std::string_view> {}(value);
+			}
+		};
+
+		auto intern(std::string_view value) -> Id;
+		auto compose(Id parent, Id child) -> Id;
+		auto compose(Id parent, std::string_view child) -> Id;
+
+		std::vector<std::unique_ptr<Id::Entry>> entries {};
+		std::unordered_map<std::string_view,
+		    Id::Entry *,
+		    TransparentHash,
+		    std::equal_to<>>
+		    lookup {};
+	};
 
 	struct RenderNode
 	{
@@ -343,8 +390,11 @@ private:
 	auto clone_node(Node const &source, Node *parent) const
 	    -> std::unique_ptr<Node>;
 	auto prune_state_store() -> void;
+	auto begin_compose_tracking() -> void;
+	auto end_compose_tracking() -> void;
 
 	std::unique_ptr<Node> m_root {};
+	mutable IdRegistry m_ids {};
 	Theme m_theme {
 		MaterialThemeBuilder().build_from_seed(
 		    smath::Vec4 { 0.25f, 0.32f, 0.71f, 1.0f }, ThemeMode::Light),
@@ -365,6 +415,9 @@ private:
 	bool m_debug_bounds {};
 	bool m_is_composing {};
 	bool m_recompose_requested_during_compose {};
+	bool m_structure_changed_during_compose { true };
+	bool m_layout_changed_during_compose { true };
+	bool m_visual_changed_during_compose { true };
 	WindowHandle m_current_window {};
 	Engine::Rect<> m_window_rect {
 		.position = smath::Vec2 { 0.0f, 0.0f },

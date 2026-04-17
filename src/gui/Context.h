@@ -412,6 +412,7 @@ public:
 	auto is_visible() const -> bool;
 	auto visibility_pause_condition() const -> std::function<bool()>;
 	auto sample_animation(Animation::Ref const &ref) -> float;
+	auto id(std::string_view key) -> Id;
 	auto new_id(std::string_view prefix = "id") -> std::string;
 	auto request_recompose() -> void;
 	auto system() -> System & { return m_system; }
@@ -441,7 +442,7 @@ private:
 template<typename T>
 auto Context::remember(std::string_view const key, T init) -> T &
 {
-	return remember<T>(id(key), std::move(init));
+	return remember<T>(this->id(key), std::move(init));
 }
 
 template<typename T> auto Context::remember(Id const key, T init) -> T &
@@ -452,7 +453,7 @@ template<typename T> auto Context::remember(Id const key, T init) -> T &
 		return fallback;
 	}
 	auto const full_key {
-		combine_id(combine_id(m_current->key, id("@state")), key),
+		m_system.state_id(m_current->key, key),
 	};
 	return m_system.remember_state<T>(full_key, std::move(init));
 }
@@ -461,7 +462,7 @@ template<typename T>
 auto Context::mutable_state_of(std::string_view const key, T init)
     -> MutableState<T>
 {
-	return mutable_state_of<T>(id(key), std::move(init));
+	return mutable_state_of<T>(this->id(key), std::move(init));
 }
 
 template<typename T>
@@ -471,7 +472,7 @@ auto Context::mutable_state_of(Id const key, T init) -> MutableState<T>
 		return MutableState<T> {};
 	}
 	auto const full_key {
-		combine_id(combine_id(m_current->key, id("@state")), key),
+		m_system.state_id(m_current->key, key),
 	};
 	m_system.remember_state<T>(full_key, std::move(init));
 	return MutableState<T> {

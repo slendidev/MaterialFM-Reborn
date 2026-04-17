@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -36,6 +37,37 @@ struct ButtonStyle
 	std::optional<smath::Vec4> outline_color {};
 	TextAlignX text_align_x { TextAlignX::Left };
 	TextAlignY text_align_y { TextAlignY::Center };
+	class Builder;
+	static auto builder() -> Builder;
+};
+
+class ButtonStyle::Builder
+{
+public:
+	auto copy(ButtonStyle style) -> Builder &;
+	auto height(float value) -> Builder &;
+	auto corner_radius(float value) -> Builder &;
+	auto text_size(float value) -> Builder &;
+	auto padding_x(float value) -> Builder &;
+	auto padding_y(float value) -> Builder &;
+	auto icon_size(float value) -> Builder &;
+	auto icon_gap(float value) -> Builder &;
+	auto fill(smath::Vec4 value) -> Builder &;
+	auto focused_fill(smath::Vec4 value) -> Builder &;
+	auto selected_fill(smath::Vec4 value) -> Builder &;
+	auto text_color(smath::Vec4 value) -> Builder &;
+	auto icon_tint(smath::Vec4 value) -> Builder &;
+	auto selected_text_color(smath::Vec4 value) -> Builder &;
+	auto selected_icon_tint(smath::Vec4 value) -> Builder &;
+	auto draw_outline(bool value) -> Builder &;
+	auto outline_thickness(float value) -> Builder &;
+	auto outline_color(smath::Vec4 value) -> Builder &;
+	auto text_align_x(TextAlignX value) -> Builder &;
+	auto text_align_y(TextAlignY value) -> Builder &;
+	auto build() const -> ButtonStyle;
+
+private:
+	ButtonStyle m_style {};
 };
 
 struct MenuItemStyle
@@ -94,67 +126,121 @@ struct ToastStyle
 	std::optional<smath::Vec4> text_color {};
 };
 
+class Button
+{
+public:
+	class Builder;
+
+	static auto builder(Context &ctx, Id key) -> Builder;
+	static auto builder(Context &ctx, std::string_view key) -> Builder;
+};
+
+class Button::Builder
+{
+public:
+	Builder(Context &ctx, Id key);
+
+	auto label(std::string_view value) -> Builder &;
+	auto icon(std::string_view value) -> Builder &;
+	auto on_activate(std::function<void()> fn) -> Builder &;
+	auto selectable(bool value = true) -> Builder &;
+	auto options(FlexOptions value) -> Builder &;
+	auto style(ButtonStyle value) -> Builder &;
+	auto build() -> void;
+
+private:
+	Context &m_ctx;
+	Id m_key {};
+	std::string m_label {};
+	std::optional<std::string> m_icon_name {};
+	std::function<void()> m_on_activate {};
+	bool m_selectable {};
+	FlexOptions m_options { FlexOptions::builder().build() };
+	ButtonStyle m_style {};
+};
+
+class Sidebar
+{
+public:
+	class Builder;
+
+	static auto builder(Context &ctx, Id key) -> Builder;
+	static auto builder(Context &ctx, std::string_view key) -> Builder;
+};
+
+class Sidebar::Builder
+{
+public:
+	Builder(Context &ctx, Id key);
+
+	auto options(FlexOptions value) -> Builder &;
+	auto style(SidebarStyle value) -> Builder &;
+	auto content(Context::ComposeFn fn) -> Builder &;
+	auto build() -> void;
+
+private:
+	Context &m_ctx;
+	Id m_key {};
+	FlexOptions m_options { FlexOptions::builder().build() };
+	SidebarStyle m_style {};
+	Context::ComposeFn m_content {};
+};
+
+class Dialog
+{
+public:
+	class Builder;
+
+	static auto builder(Context &ctx, Id key) -> Builder;
+	static auto builder(Context &ctx, std::string_view key) -> Builder;
+};
+
+class Dialog::Builder
+{
+public:
+	Builder(Context &ctx, Id key);
+
+	auto options(FlexOptions value) -> Builder &;
+	auto style(DialogStyle value) -> Builder &;
+	auto content(Context::ComposeFn fn) -> Builder &;
+	auto build() -> void;
+
+private:
+	Context &m_ctx;
+	Id m_key {};
+	FlexOptions m_options { FlexOptions::builder().build() };
+	DialogStyle m_style {};
+	Context::ComposeFn m_content {};
+};
+
 class Toast
 {
 public:
+	class Builder;
+
 	explicit Toast(std::string key);
+	explicit Toast(std::shared_ptr<ToastControl> control);
+	static auto builder(Context &ctx, Id key) -> Builder;
+	static auto builder(Context &ctx, std::string_view key) -> Builder;
 	auto show() const -> void;
 	auto show(std::string_view message) const -> void;
 
 private:
 	std::shared_ptr<ToastControl> m_control {};
-
-	explicit Toast(std::shared_ptr<ToastControl> control);
-	friend auto toast(Context &ctx, Id key, ToastStyle const &style) -> Toast;
-	friend auto toast(
-	    Context &ctx, std::string_view key, ToastStyle const &style) -> Toast;
 };
 
-auto button(Context &ctx,
-    Id key,
-    std::string_view label,
-    std::optional<std::string_view> const icon_name,
-    std::function<void()> on_activate = {},
-    bool selectable = false,
-    FlexOptions const &options = FlexOptions::builder().build(),
-    ButtonStyle const &style = {}) -> void;
+class Toast::Builder
+{
+public:
+	Builder(Context &ctx, Id key);
 
-auto button(Context &ctx,
-    std::string_view key,
-    std::string_view label,
-    std::optional<std::string_view> const icon_name,
-    std::function<void()> on_activate = {},
-    bool selectable = false,
-    FlexOptions const &options = FlexOptions::builder().build(),
-    ButtonStyle const &style = {}) -> void;
+	auto style(ToastStyle value) -> Builder &;
+	auto build() -> Toast;
 
-auto sidebar(Context &ctx,
-    Id key,
-    FlexOptions const &options,
-    Context::ComposeFn const &fn,
-    SidebarStyle const &style = {}) -> void;
-
-auto sidebar(Context &ctx,
-    std::string_view key,
-    FlexOptions const &options,
-    Context::ComposeFn const &fn,
-    SidebarStyle const &style = {}) -> void;
-
-auto dialog(Context &ctx,
-    Id key,
-    FlexOptions const &options,
-    Context::ComposeFn const &fn,
-    DialogStyle const &style = {}) -> void;
-
-auto dialog(Context &ctx,
-    std::string_view key,
-    FlexOptions const &options,
-    Context::ComposeFn const &fn,
-    DialogStyle const &style = {}) -> void;
-
-auto toast(Context &ctx, Id key, ToastStyle const &style = {}) -> Toast;
-
-auto toast(Context &ctx, std::string_view key, ToastStyle const &style = {})
-    -> Toast;
+private:
+	Context &m_ctx;
+	Id m_key {};
+	ToastStyle m_style {};
+};
 
 } // namespace Gui::components

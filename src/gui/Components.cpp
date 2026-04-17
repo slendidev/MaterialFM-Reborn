@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdio>
 #include <unordered_map>
 
 #include "gui/Node.h"
@@ -23,14 +22,28 @@ struct ToastControl
 
 namespace
 {
+struct ResolvedButtonStyle
+{
+	smath::Vec4 fill {};
+	smath::Vec4 focused_fill {};
+	smath::Vec4 selected_fill {};
+	smath::Vec4 text_color {};
+	smath::Vec4 icon_tint {};
+	smath::Vec4 selected_text_color {};
+	smath::Vec4 selected_icon_tint {};
+	smath::Vec4 outline_color {};
+};
+
+struct ToastState
+{
+	bool active {};
+	uint32_t generation {};
+	std::string message {};
+};
+
 auto key_string_from_id(Id const key) -> std::string
 {
-	char buffer[16] {};
-	std::snprintf(buffer,
-	    sizeof(buffer),
-	    "id_%08lx",
-	    static_cast<unsigned long>(key.value));
-	return std::string(buffer);
+	return std::string(key.label());
 }
 
 auto mix_color(smath::Vec4 const a, smath::Vec4 const b, float const t)
@@ -57,18 +70,6 @@ auto resolve_color(std::optional<smath::Vec4> const &override_color,
 	return override_color.value_or(fallback);
 }
 
-struct ResolvedButtonStyle
-{
-	smath::Vec4 fill {};
-	smath::Vec4 focused_fill {};
-	smath::Vec4 selected_fill {};
-	smath::Vec4 text_color {};
-	smath::Vec4 icon_tint {};
-	smath::Vec4 selected_text_color {};
-	smath::Vec4 selected_icon_tint {};
-	smath::Vec4 outline_color {};
-};
-
 auto resolve_button_style(Theme const &theme, ButtonStyle const &style)
     -> ResolvedButtonStyle
 {
@@ -78,7 +79,7 @@ auto resolve_button_style(Theme const &theme, ButtonStyle const &style)
 		= resolve_color(style.focused_fill, theme.secondary_container),
 		.selected_fill = resolve_color(style.selected_fill, theme.primary),
 		.text_color = resolve_color(style.text_color, theme.on_surface),
-		.icon_tint = resolve_color(style.icon_tint, theme.on_surface),
+		.icon_tint = resolve_color(style.icon_tint, theme.on_surface_variant),
 		.selected_text_color
 		= resolve_color(style.selected_text_color, theme.on_primary),
 		.selected_icon_tint
@@ -87,30 +88,28 @@ auto resolve_button_style(Theme const &theme, ButtonStyle const &style)
 	};
 }
 
-auto resolve_layer_fill(
-    Theme const &theme, std::optional<smath::Vec4> const &fill, float tonal_mix)
-    -> smath::Vec4
+auto resolve_layer_fill(Theme const &theme,
+    std::optional<smath::Vec4> const &fill,
+    float const tonal_mix) -> smath::Vec4
 {
-	return fill.value_or(
-	    mix_color(theme.surface_container_low, theme.primary, tonal_mix));
+	if (fill.has_value()) {
+		return *fill;
+	}
+	return mix_color(
+	    theme.surface, theme.primary, std::clamp(tonal_mix, 0.0f, 1.0f));
 }
 
-auto resolve_dialog_fill(
-    Theme const &theme, std::optional<smath::Vec4> const &fill, float tonal_mix)
-    -> smath::Vec4
+auto resolve_dialog_fill(Theme const &theme,
+    std::optional<smath::Vec4> const &fill,
+    float const tonal_mix) -> smath::Vec4
 {
-	return fill.value_or(
-	    mix_color(theme.surface_container_high, theme.primary, tonal_mix));
+	if (fill.has_value()) {
+		return *fill;
+	}
+	return mix_color(theme.surface_container_high,
+	    theme.primary,
+	    std::clamp(tonal_mix, 0.0f, 1.0f));
 }
-
-struct ToastState
-{
-	bool active {};
-	uint32_t generation {};
-	std::string message {};
-
-	auto operator==(ToastState const &) const -> bool = default;
-};
 
 auto toast_controls()
     -> std::unordered_map<std::string, std::shared_ptr<ToastControl>> &
@@ -135,9 +134,8 @@ auto ensure_toast_control(std::string const &key, ToastStyle const &style)
 	controls.emplace(key, control);
 	return control;
 }
-} // namespace
 
-auto button(Context &ctx,
+auto render_button(Context &ctx,
     Id const key,
     std::string_view const label,
     std::optional<std::string_view> const icon_name,
@@ -153,7 +151,7 @@ auto button(Context &ctx,
 	    std::move(on_activate),
 	    selectable,
 	    [&](Context &pressable) {
-		    pressable.surface(Gui::id("surface"),
+		    pressable.surface(pressable.id("surface"),
 		        FlexOptions::builder().build(),
 		        SurfaceStyle::builder()
 		            .draw_fill(true)
@@ -167,7 +165,7 @@ auto button(Context &ctx,
 		            .outline_color(resolved.outline_color)
 		            .build(),
 		        [&](Context &surface) {
-			        surface.flex(Gui::id("content"),
+			        surface.flex(surface.id("content"),
 			            FlexOptions::builder()
 			                .row()
 			                .align_items(AlignItems::Center)
@@ -179,7 +177,7 @@ auto button(Context &ctx,
 			                .build(),
 			            [&](Context &content) {
 				            if (icon_name) {
-					            content.icon(Gui::id("icon"),
+					            content.icon(content.id("icon"),
 					                *icon_name,
 					                IconStyle::builder()
 					                    .size(style.icon_size)
@@ -189,7 +187,7 @@ auto button(Context &ctx,
 					                        resolved.selected_icon_tint)
 					                    .build());
 				            }
-				            content.text(Gui::id("label"),
+				            content.text(content.id("label"),
 				                label,
 				                TextStyle::builder()
 				                    .size(style.text_size)
@@ -206,26 +204,7 @@ auto button(Context &ctx,
 	    });
 }
 
-auto button(Context &ctx,
-    std::string_view const key,
-    std::string_view const label,
-    std::optional<std::string_view> const icon_name,
-    std::function<void()> on_activate,
-    bool const selectable,
-    FlexOptions const &options,
-    ButtonStyle const &style) -> void
-{
-	button(ctx,
-	    Gui::id(key),
-	    label,
-	    icon_name,
-	    std::move(on_activate),
-	    selectable,
-	    options,
-	    style);
-}
-
-auto sidebar(Context &ctx,
+auto render_sidebar(Context &ctx,
     Id const key,
     FlexOptions const &options,
     Context::ComposeFn const &fn,
@@ -249,24 +228,15 @@ auto sidebar(Context &ctx,
 	        .fill_color(fill)
 	        .build(),
 	    [&](Context &layer_ctx) {
-		    layer_ctx.scrollable(Gui::id("drawer_scrollable"),
+		    layer_ctx.scrollable(layer_ctx.id("drawer_scrollable"),
 		        Gui::ScrollOptions::builder().build(),
 		        [&](Gui::Context &scroll) {
-			        scroll.flex(Gui::id("content"), options, fn);
+			        scroll.flex(scroll.id("content"), options, fn);
 		        });
 	    });
 }
 
-auto sidebar(Context &ctx,
-    std::string_view const key,
-    FlexOptions const &options,
-    Context::ComposeFn const &fn,
-    SidebarStyle const &style) -> void
-{
-	sidebar(ctx, Gui::id(key), options, fn, style);
-}
-
-auto dialog(Context &ctx,
+auto render_dialog(Context &ctx,
     Id const key,
     FlexOptions const &options,
     Context::ComposeFn const &fn,
@@ -308,7 +278,7 @@ auto dialog(Context &ctx,
 	        .draw_fill(false)
 	        .build(),
 	    [&](Context &layer_ctx) {
-		    layer_ctx.flex(Gui::id("center"),
+		    layer_ctx.flex(layer_ctx.id("center"),
 		        FlexOptions::builder()
 		            .row()
 		            .width(screen_width)
@@ -317,7 +287,7 @@ auto dialog(Context &ctx,
 		            .align_items(AlignItems::Center)
 		            .build(),
 		        [&](Context &center) {
-			        center.surface(Gui::id("card"),
+			        center.surface(center.id("card"),
 			            FlexOptions::builder()
 			                .align_items(AlignItems::Start)
 			                .build(),
@@ -345,27 +315,18 @@ auto dialog(Context &ctx,
 				            }
 				            scroll_options_builder.max_width(dialog_max_width)
 				                .max_height(dialog_max_height);
-				            card.scrollable(Gui::id("scroll"),
+				            card.scrollable(card.id("scroll"),
 				                scroll_options_builder.build(),
 				                [&](Context &scroll) {
 					                scroll.flex(
-					                    Gui::id("content"), options, fn);
+					                    scroll.id("content"), options, fn);
 				                });
 			            });
 		        });
 	    });
 }
 
-auto dialog(Context &ctx,
-    std::string_view const key,
-    FlexOptions const &options,
-    Context::ComposeFn const &fn,
-    DialogStyle const &style) -> void
-{
-	dialog(ctx, Gui::id(key), options, fn, style);
-}
-
-auto toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
+auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 {
 	auto const key_string { key_string_from_id(key) };
 	auto control { ensure_toast_control(key_string, style) };
@@ -438,7 +399,7 @@ auto toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 		ctx.theme().inverse_on_surface) };
 
 	auto const window_rect { ctx.window_rect() };
-	ctx.layer(key_string,
+	ctx.layer(key,
 	    LayerPresentation::Hud,
 	    FlexOptions::builder()
 	        .width(window_rect.size.x())
@@ -446,7 +407,7 @@ auto toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 	        .build(),
 	    LayerStyle::builder().draw_scrim(false).draw_fill(false).build(),
 	    [&](Context &layer_ctx) {
-		    layer_ctx.flex(Gui::id("bottom_center"),
+		    layer_ctx.flex(layer_ctx.id("bottom_center"),
 		        FlexOptions::builder()
 		            .row()
 		            .width(window_rect.size.x())
@@ -461,7 +422,7 @@ auto toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 		            .align_items(AlignItems::End)
 		            .build(),
 		        [&](Context &bottom_center) {
-			        bottom_center.surface(Gui::id("toast_card"),
+			        bottom_center.surface(bottom_center.id("toast_card"),
 			            FlexOptions::builder()
 			                .width(control->style.width)
 			                .height(control->style.min_height)
@@ -474,7 +435,7 @@ auto toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 			                .fill_color(with_multiplied_alpha(fill, alpha))
 			                .build(),
 			            [&](Context &card) {
-				            card.flex(Gui::id("content"),
+				            card.flex(card.id("content"),
 				                FlexOptions::builder()
 				                    .row()
 				                    .width(control->style.width)
@@ -487,7 +448,7 @@ auto toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 				                    .align_items(AlignItems::Center)
 				                    .build(),
 				                [&](Context &content) {
-					                content.text(Gui::id("message"),
+					                content.text(content.id("message"),
 					                    state_store.get().message,
 					                    TextStyle::builder()
 					                        .size(control->style.text_size)
@@ -506,11 +467,190 @@ auto toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 
 	return Toast { std::move(control) };
 }
+} // namespace
 
-auto toast(Context &ctx, std::string_view const key, ToastStyle const &style)
-    -> Toast
+auto ButtonStyle::builder() -> ButtonStyle::Builder
 {
-	return toast(ctx, Gui::id(key), style);
+	return Builder {};
+}
+
+auto ButtonStyle::Builder::copy(ButtonStyle const style) -> Builder &
+{
+	m_style = style;
+	return *this;
+}
+
+#define GUI_BUTTON_STYLE_SETTER(name, field, type) \
+	auto ButtonStyle::Builder::name(type const value) -> Builder & \
+	{ \
+		m_style.field = value; \
+		return *this; \
+	}
+
+GUI_BUTTON_STYLE_SETTER(height, height, float)
+GUI_BUTTON_STYLE_SETTER(corner_radius, corner_radius, float)
+GUI_BUTTON_STYLE_SETTER(text_size, text_size, float)
+GUI_BUTTON_STYLE_SETTER(padding_x, padding_x, float)
+GUI_BUTTON_STYLE_SETTER(padding_y, padding_y, float)
+GUI_BUTTON_STYLE_SETTER(icon_size, icon_size, float)
+GUI_BUTTON_STYLE_SETTER(icon_gap, icon_gap, float)
+GUI_BUTTON_STYLE_SETTER(fill, fill, smath::Vec4)
+GUI_BUTTON_STYLE_SETTER(focused_fill, focused_fill, smath::Vec4)
+GUI_BUTTON_STYLE_SETTER(selected_fill, selected_fill, smath::Vec4)
+GUI_BUTTON_STYLE_SETTER(text_color, text_color, smath::Vec4)
+GUI_BUTTON_STYLE_SETTER(icon_tint, icon_tint, smath::Vec4)
+GUI_BUTTON_STYLE_SETTER(selected_text_color, selected_text_color, smath::Vec4)
+GUI_BUTTON_STYLE_SETTER(selected_icon_tint, selected_icon_tint, smath::Vec4)
+GUI_BUTTON_STYLE_SETTER(draw_outline, draw_outline, bool)
+GUI_BUTTON_STYLE_SETTER(outline_thickness, outline_thickness, float)
+GUI_BUTTON_STYLE_SETTER(outline_color, outline_color, smath::Vec4)
+GUI_BUTTON_STYLE_SETTER(text_align_x, text_align_x, TextAlignX)
+GUI_BUTTON_STYLE_SETTER(text_align_y, text_align_y, TextAlignY)
+
+#undef GUI_BUTTON_STYLE_SETTER
+
+auto ButtonStyle::Builder::build() const -> ButtonStyle
+{
+	return m_style;
+}
+
+auto Button::builder(Context &ctx, Id const key) -> Button::Builder
+{
+	return Builder { ctx, key };
+}
+
+auto Button::builder(Context &ctx, std::string_view const key)
+    -> Button::Builder
+{
+	return Builder { ctx, ctx.id(key) };
+}
+
+Button::Builder::Builder(Context &ctx, Id const key)
+    : m_ctx(ctx), m_key(key) { }
+
+auto Button::Builder::label(std::string_view const value) -> Builder &
+{
+	m_label = std::string(value);
+	return *this;
+}
+
+auto Button::Builder::icon(std::string_view const value) -> Builder &
+{
+	m_icon_name = std::string(value);
+	return *this;
+}
+
+auto Button::Builder::on_activate(std::function<void()> fn) -> Builder &
+{
+	m_on_activate = std::move(fn);
+	return *this;
+}
+
+auto Button::Builder::selectable(bool const value) -> Builder &
+{
+	m_selectable = value;
+	return *this;
+}
+
+auto Button::Builder::options(FlexOptions const value) -> Builder &
+{
+	m_options = value;
+	return *this;
+}
+
+auto Button::Builder::style(ButtonStyle const value) -> Builder &
+{
+	m_style = value;
+	return *this;
+}
+
+auto Button::Builder::build() -> void
+{
+	auto icon_name_view { m_icon_name
+		    ? std::optional<std::string_view> { *m_icon_name }
+		    : std::nullopt };
+	render_button(m_ctx,
+	    m_key,
+	    m_label,
+	    icon_name_view,
+	    std::move(m_on_activate),
+	    m_selectable,
+	    m_options,
+	    m_style);
+}
+
+auto Sidebar::builder(Context &ctx, Id const key) -> Sidebar::Builder
+{
+	return Builder { ctx, key };
+}
+
+auto Sidebar::builder(Context &ctx, std::string_view const key)
+    -> Sidebar::Builder
+{
+	return Builder { ctx, ctx.id(key) };
+}
+
+Sidebar::Builder::Builder(Context &ctx, Id const key) : m_ctx(ctx), m_key(key)
+{ }
+
+auto Sidebar::Builder::options(FlexOptions const value) -> Builder &
+{
+	m_options = value;
+	return *this;
+}
+
+auto Sidebar::Builder::style(SidebarStyle const value) -> Builder &
+{
+	m_style = value;
+	return *this;
+}
+
+auto Sidebar::Builder::content(Context::ComposeFn fn) -> Builder &
+{
+	m_content = std::move(fn);
+	return *this;
+}
+
+auto Sidebar::Builder::build() -> void
+{
+	render_sidebar(m_ctx, m_key, m_options, m_content, m_style);
+}
+
+auto Dialog::builder(Context &ctx, Id const key) -> Dialog::Builder
+{
+	return Builder { ctx, key };
+}
+
+auto Dialog::builder(Context &ctx, std::string_view const key)
+    -> Dialog::Builder
+{
+	return Builder { ctx, ctx.id(key) };
+}
+
+Dialog::Builder::Builder(Context &ctx, Id const key)
+    : m_ctx(ctx), m_key(key) { }
+
+auto Dialog::Builder::options(FlexOptions const value) -> Builder &
+{
+	m_options = value;
+	return *this;
+}
+
+auto Dialog::Builder::style(DialogStyle const value) -> Builder &
+{
+	m_style = value;
+	return *this;
+}
+
+auto Dialog::Builder::content(Context::ComposeFn fn) -> Builder &
+{
+	m_content = std::move(fn);
+	return *this;
+}
+
+auto Dialog::Builder::build() -> void
+{
+	render_dialog(m_ctx, m_key, m_options, m_content, m_style);
 }
 
 Toast::Toast(std::string key)
@@ -520,6 +660,29 @@ Toast::Toast(std::string key)
 Toast::Toast(std::shared_ptr<ToastControl> control)
     : m_control(std::move(control))
 { }
+
+auto Toast::builder(Context &ctx, Id const key) -> Toast::Builder
+{
+	return Builder { ctx, key };
+}
+
+auto Toast::builder(Context &ctx, std::string_view const key) -> Toast::Builder
+{
+	return Builder { ctx, ctx.id(key) };
+}
+
+Toast::Builder::Builder(Context &ctx, Id const key) : m_ctx(ctx), m_key(key) { }
+
+auto Toast::Builder::style(ToastStyle const value) -> Builder &
+{
+	m_style = value;
+	return *this;
+}
+
+auto Toast::Builder::build() -> Toast
+{
+	return render_toast(m_ctx, m_key, m_style);
+}
 
 auto Toast::show() const -> void
 {

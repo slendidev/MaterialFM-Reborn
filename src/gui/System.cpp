@@ -25,8 +25,6 @@ constexpr float PI { 3.14159265358979323846f };
 constexpr float DEFAULT_DRAWER_WIDTH { 184.0f };
 constexpr float DEFAULT_MODAL_WIDTH { 280.0f };
 constexpr float DEFAULT_MODAL_HEIGHT { 170.0f };
-constexpr auto STATE_SALT { Gui::id("@state") };
-constexpr auto TWEEN_SALT { Gui::id("@tween") };
 
 [[gnu::always_inline]] inline auto approx_equal(
     float const a, float const b, float const epsilon = 0.0001f) -> bool
@@ -320,6 +318,125 @@ inline auto clamp_size(System::MeasuredSize size, Node const &node)
 }
 } // namespace
 
+auto System::IdRegistry::intern(std::string_view const value) -> Id
+{
+	if (value.empty()) {
+		return {};
+	}
+
+	if (auto const it { lookup.find(value) }; it != lookup.end()) {
+		return Id { it->second };
+	}
+
+	auto entry { std::make_unique<Id::Entry>() };
+	entry->value = std::string(value);
+	auto const slash { entry->value.find_last_of('/') };
+	entry->short_offset
+	    = slash == std::string::npos ? 0u : static_cast<size_t>(slash + 1u);
+	auto *stored { entry.get() };
+	entries.push_back(std::move(entry));
+	lookup.emplace(stored->value, stored);
+	return Id { stored };
+}
+
+auto System::IdRegistry::compose(Id const parent, Id const child) -> Id
+{
+	if (!parent.valid()) {
+		return child;
+	}
+	if (!child.valid()) {
+		return parent;
+	}
+	std::string combined {};
+	combined.reserve(parent.label().size() + 1 + child.label().size());
+	combined += parent.label();
+	combined += '/';
+	combined += child.label();
+	return intern(combined);
+}
+
+auto System::IdRegistry::compose(Id const parent, std::string_view const child)
+    -> Id
+{
+	return compose(parent, intern(child));
+}
+
+auto System::id(std::string_view const value) const -> Id
+{
+	return m_ids.intern(value);
+}
+
+auto System::compose_id(Id const parent, Id const child) const -> Id
+{
+	return m_ids.compose(parent, child);
+}
+
+auto System::compose_id(Id const parent, std::string_view const child) const
+    -> Id
+{
+	return m_ids.compose(parent, child);
+}
+
+auto System::state_id(Id const parent, Id const local_key) const -> Id
+{
+	return compose_id(compose_id(parent, STATE_SEGMENT), local_key);
+}
+
+auto System::tween_id(Id const owner, std::string_view const local_key) const
+    -> Id
+{
+	return compose_id(compose_id(owner, TWEEN_SEGMENT), local_key);
+}
+
+auto System::mark_layout_change() -> void
+{
+	if (m_is_composing) {
+		m_layout_changed_during_compose = true;
+	} else {
+		request_layout();
+	}
+}
+
+auto System::mark_structure_change() -> void
+{
+	if (m_is_composing) {
+		m_structure_changed_during_compose = true;
+	} else {
+		m_world_dirty = true;
+		m_visual_dirty = true;
+	}
+}
+
+auto System::mark_visual_change() -> void
+{
+	if (m_is_composing) {
+		m_visual_changed_during_compose = true;
+	} else {
+		request_visual();
+	}
+}
+
+auto System::begin_compose_tracking() -> void
+{
+	m_structure_changed_during_compose = false;
+	m_layout_changed_during_compose = false;
+	m_visual_changed_during_compose = false;
+}
+
+auto System::end_compose_tracking() -> void
+{
+	if (m_layout_changed_during_compose) {
+		m_layout_dirty = true;
+		m_world_dirty = true;
+		m_visual_dirty = true;
+	} else if (m_structure_changed_during_compose) {
+		m_world_dirty = true;
+		m_visual_dirty = true;
+	} else if (m_visual_changed_during_compose) {
+		m_visual_dirty = true;
+	}
+}
+
 auto System::measure_leaf(Node const &node) const -> MeasuredSize
 {
 	MeasuredSize size {};
@@ -469,8 +586,8 @@ System::System()
 	m_root = std::make_unique<Node>();
 	m_root->kind = Kind::Root;
 	m_root->scope = Scope::Root;
-	m_root->key = id("root");
-	m_root->local_key = id("root");
+	m_root->key = this->id("root");
+	m_root->local_key = this->id("root");
 	m_sidebar_tween.configure(Animation::TweenSpec {
 	    .from = 0.0f,
 	    .to = 0.0f,
@@ -899,6 +1016,7 @@ auto System::compose(std::function<void(Context &)> const &fn) -> void
 	}
 	m_is_composing = true;
 	m_recompose_requested_during_compose = false;
+	begin_compose_tracking();
 	m_state_touched.clear();
 	m_stats.recomposed_scopes += 1;
 	if (m_root_dirty) {
@@ -924,6 +1042,7 @@ auto System::compose(std::function<void(Context &)> const &fn) -> void
 
 	for (auto it { m_reconcile_nodes.begin() };
 	    it != m_reconcile_nodes.end();) {
+		mark_structure_change();
 		stash_orphan(std::move(it->second));
 		it = m_reconcile_nodes.erase(it);
 	}
@@ -937,8 +1056,7 @@ auto System::compose(std::function<void(Context &)> const &fn) -> void
 		m_sidebar_dirty = false;
 		m_dialog_dirty = false;
 	}
-	m_layout_dirty = true;
-	m_visual_dirty = true;
+	end_compose_tracking();
 }
 
 auto System::prune_state_store() -> void
@@ -961,7 +1079,7 @@ auto System::reconcile_node(Node *const parent,
 	if (parent == nullptr) {
 		return m_root.get();
 	}
-	auto const full_key { combine_id(parent->key, key) };
+	auto const full_key { compose_id(parent->key, key) };
 
 	std::unique_ptr<Node> node {};
 	auto const existing_it { m_reconcile_nodes.find(full_key) };
@@ -972,90 +1090,130 @@ auto System::reconcile_node(Node *const parent,
 	} else if (!m_node_pool.empty()) {
 		node = std::move(m_node_pool.back());
 		m_node_pool.pop_back();
+		mark_structure_change();
 	} else {
 		node = std::make_unique<Node>();
+		mark_structure_change();
 	}
+	auto const previous_kind { node->kind };
+	auto const kind_changed { !reused || previous_kind != kind };
+	auto assign_layout { [&](auto &field, auto value) {
+		if (field == value) {
+			return;
+		}
+		field = std::move(value);
+		mark_layout_change();
+	} };
+	auto assign_visual { [&](auto &field, auto value) {
+		if (field == value) {
+			return;
+		}
+		field = std::move(value);
+		mark_visual_change();
+	} };
 
-	node->kind = kind;
-	node->scope = scope;
+	assign_layout(node->kind, kind);
+	assign_visual(node->scope, scope);
 	node->parent = parent;
 	auto const padding { resolve_padding(options.padding()) };
-	node->padding_top = padding.top;
-	node->padding_right = padding.right;
-	node->padding_bottom = padding.bottom;
-	node->padding_left = padding.left;
-	node->gap = options.gap();
-	node->row_gap = options.row_gap();
-	node->column_gap = options.column_gap();
-	node->animated_width.reset();
-	node->animated_height.reset();
+	assign_layout(node->padding_top, padding.top);
+	assign_layout(node->padding_right, padding.right);
+	assign_layout(node->padding_bottom, padding.bottom);
+	assign_layout(node->padding_left, padding.left);
+	assign_layout(node->gap, options.gap());
+	assign_layout(node->row_gap, options.row_gap());
+	assign_layout(node->column_gap, options.column_gap());
+	if (node->animated_width.has_value()) {
+		node->animated_width.reset();
+		mark_layout_change();
+	}
+	if (node->animated_height.has_value()) {
+		node->animated_height.reset();
+		mark_layout_change();
+	}
 	if (auto const *width_ref {
 	        std::get_if<Animation::Ref>(&options.width_value()),
 	    }) {
-		node->animated_width = *width_ref;
-		node->fixed_width = resolve_animated_float(*width_ref, full_key);
+		if (!node->animated_width.has_value()) {
+			node->animated_width = *width_ref;
+			mark_layout_change();
+		} else {
+			node->animated_width = *width_ref;
+		}
+		assign_layout(
+		    node->fixed_width, resolve_animated_float(*width_ref, full_key));
 	} else {
-		node->fixed_width = options.width();
+		assign_layout(node->fixed_width, options.width());
 	}
 	if (auto const *height_ref {
 	        std::get_if<Animation::Ref>(&options.height_value()),
 	    }) {
-		node->animated_height = *height_ref;
-		node->fixed_height = resolve_animated_float(*height_ref, full_key);
+		if (!node->animated_height.has_value()) {
+			node->animated_height = *height_ref;
+			mark_layout_change();
+		} else {
+			node->animated_height = *height_ref;
+		}
+		assign_layout(
+		    node->fixed_height, resolve_animated_float(*height_ref, full_key));
 	} else {
-		node->fixed_height = options.height();
+		assign_layout(node->fixed_height, options.height());
 	}
-	node->min_width = options.min_width();
-	node->min_height = options.min_height();
-	node->max_width = options.max_width();
-	node->max_height = options.max_height();
-	node->flex_grow = options.flex_grow();
-	node->flex_shrink = options.flex_shrink();
-	node->flex_basis = options.flex_basis();
-	node->align_self = options.align_self();
-	node->flex_direction = options.direction();
-	node->flex_wrap = options.wrap();
-	node->justify_content = options.justify_content();
-	node->align_items = options.align_items();
-	node->align_content = options.align_content();
-	node->scroll_axis = ScrollAxis::Vertical;
-	node->scroll_step = 24.0f;
+	assign_layout(node->min_width, options.min_width());
+	assign_layout(node->min_height, options.min_height());
+	assign_layout(node->max_width, options.max_width());
+	assign_layout(node->max_height, options.max_height());
+	assign_layout(node->flex_grow, options.flex_grow());
+	assign_layout(node->flex_shrink, options.flex_shrink());
+	assign_layout(node->flex_basis, options.flex_basis());
+	assign_layout(node->align_self, options.align_self());
+	assign_layout(node->flex_direction, options.direction());
+	assign_layout(node->flex_wrap, options.wrap());
+	assign_layout(node->justify_content, options.justify_content());
+	assign_layout(node->align_items, options.align_items());
+	assign_layout(node->align_content, options.align_content());
+	if (kind_changed) {
+		node->scroll_axis = ScrollAxis::Vertical;
+		node->scroll_step = 24.0f;
+		node->label.clear();
+		node->icon_name.clear();
+		node->text_size = 14.0f;
+		node->text_align_x = TextAlignX::Left;
+		node->text_align_y = TextAlignY::Top;
+		node->interactive = false;
+		node->selectable = false;
+		node->use_pressable_state = false;
+		node->draw_fill = false;
+		node->draw_outline = false;
+		node->draw_scrim = false;
+		node->corner_radius = 0.0f;
+		node->outline_thickness = 1.0f;
+		node->icon_size = 24.0f;
+		node->layer_presentation = LayerPresentation::Drawer;
+		node->fill_color = smath::Vec4 {};
+		node->focus_fill_color = smath::Vec4 {};
+		node->selected_fill_color = smath::Vec4 {};
+		node->outline_color = smath::Vec4 {};
+		node->text_color = smath::Vec4 {};
+		node->selected_text_color = smath::Vec4 {};
+		node->icon_tint = smath::Vec4 {};
+		node->selected_icon_tint = smath::Vec4 {};
+		node->scrim_color = smath::Vec4 {};
+		node->on_activate = {};
+		mark_layout_change();
+		mark_visual_change();
+	}
 	node->key = full_key;
 	node->local_key = key;
-	node->label.clear();
-	node->icon_name.clear();
-	node->text_size = 14.0f;
-	node->text_align_x = TextAlignX::Left;
-	node->text_align_y = TextAlignY::Top;
-	node->content_width = 0.0f;
-	node->content_height = 0.0f;
-	node->interactive = false;
-	node->selectable = false;
-	node->use_pressable_state = false;
-	node->draw_fill = false;
-	node->draw_outline = false;
-	node->draw_scrim = false;
-	node->corner_radius = 0.0f;
-	node->outline_thickness = 1.0f;
-	node->icon_size = 24.0f;
-	node->layer_presentation = LayerPresentation::Drawer;
-	node->fill_color = smath::Vec4 {};
-	node->focus_fill_color = smath::Vec4 {};
-	node->selected_fill_color = smath::Vec4 {};
-	node->outline_color = smath::Vec4 {};
-	node->text_color = smath::Vec4 {};
-	node->selected_text_color = smath::Vec4 {};
-	node->icon_tint = smath::Vec4 {};
-	node->selected_icon_tint = smath::Vec4 {};
-	node->scrim_color = smath::Vec4 {};
-	node->local_rect = {};
-	node->world_rect = {};
-	node->translation = smath::Vec2 { 0.0f, 0.0f };
-	node->on_activate = {};
 	node->children.clear();
 	if (!reused) {
 		node->recompose_count = 0;
 		node->skip_count = 0;
+		node->content_width = 0.0f;
+		node->content_height = 0.0f;
+		node->local_rect = {};
+		node->world_rect = {};
+		node->translation = smath::Vec2 { 0.0f, 0.0f };
 		node->scroll_x = 0.0f;
 		node->scroll_y = 0.0f;
 		node->scroll_target_x = 0.0f;
@@ -1765,10 +1923,9 @@ auto System::resolve_animated_float(
 
 	Id resolved_key {};
 	if (ref.key.starts_with("root/")) {
-		resolved_key = id(ref.key);
+		resolved_key = this->id(ref.key);
 	} else {
-		resolved_key
-		    = combine_id(combine_id(owner_key, TWEEN_SALT), id(ref.key));
+		resolved_key = tween_id(owner_key, ref.key);
 	}
 
 	auto &track { m_tween_tracks[resolved_key] };
@@ -3143,7 +3300,7 @@ auto System::dump_tree_line(
 	    node.local_rect.size,
 	    node.recompose_count,
 	    node.skip_count,
-	    node.key.value);
+	    node.key.label());
 	for (auto const &child : node.children) {
 		dump_tree_line(out, *child, indent + 1);
 	}
