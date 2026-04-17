@@ -899,7 +899,8 @@ auto System::memo_restore(Node &node) -> bool
 	return true;
 }
 
-auto System::build_render_cache_node(Node const &source, uint16_t const depth)
+auto System::build_render_cache_node(
+    Node const &source, uint16_t const depth, uint16_t const parent_index)
     -> uint16_t
 {
 	if (m_render_nodes.size() >= static_cast<size_t>(INVALID_NODE_INDEX)) {
@@ -944,6 +945,7 @@ auto System::build_render_cache_node(Node const &source, uint16_t const depth)
 	    .depth = depth,
 	    .label = &source.label,
 	    .icon_name = &source.icon_name,
+	    .parent_index = parent_index,
 	    .first_child = INVALID_NODE_INDEX,
 	    .next_sibling = INVALID_NODE_INDEX,
 	});
@@ -952,7 +954,7 @@ auto System::build_render_cache_node(Node const &source, uint16_t const depth)
 	auto prev_child { INVALID_NODE_INDEX };
 	for (auto const &child : source.children) {
 		auto const child_index { build_render_cache_node(
-			*child, static_cast<uint16_t>(depth + 1)) };
+			*child, static_cast<uint16_t>(depth + 1), index) };
 		if (child_index == INVALID_NODE_INDEX) {
 			continue;
 		}
@@ -2750,8 +2752,13 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 		                                      .align_y = node.text_align_y,
 		                                  } });
 		if (m_debug_bounds) {
-			draw_debug_bounds(
-			    draw_list, node.rect, node.depth, key, *visible_rect, false);
+			draw_debug_bounds(draw_list,
+			    node_index,
+			    node.rect,
+			    node.depth,
+			    key,
+			    *visible_rect,
+			    false);
 		}
 		return;
 	}
@@ -2846,8 +2853,13 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 		                           } });
 		}
 		if (m_debug_bounds) {
-			draw_debug_bounds(
-			    draw_list, node.rect, node.depth, key, *visible_rect, false);
+			draw_debug_bounds(draw_list,
+			    node_index,
+			    node.rect,
+			    node.depth,
+			    key,
+			    *visible_rect,
+			    false);
 		}
 		return;
 	}
@@ -2909,8 +2921,13 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 		}
 		draw_list.push_back(DrawCommand { .payload = DrawCommand::PopClip {} });
 		if (m_debug_bounds) {
-			draw_debug_bounds(
-			    draw_list, node.rect, node.depth, key, *visible_rect, false);
+			draw_debug_bounds(draw_list,
+			    node_index,
+			    node.rect,
+			    node.depth,
+			    key,
+			    *visible_rect,
+			    false);
 		}
 		return;
 	}
@@ -2934,6 +2951,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 
 	if (m_debug_bounds && node.kind != Kind::Root) {
 		draw_debug_bounds(draw_list,
+		    node_index,
 		    node.rect,
 		    node.depth,
 		    key,
@@ -2943,6 +2961,7 @@ auto System::render_node(std::vector<DrawCommand> &draw_list,
 }
 
 auto System::draw_debug_bounds(std::vector<DrawCommand> &draw_list,
+    uint16_t const node_index,
     Engine::Rect<> const rect,
     uint16_t const depth,
     Id const key,
@@ -2983,6 +3002,7 @@ auto System::draw_debug_bounds(std::vector<DrawCommand> &draw_list,
 		return;
 	}
 	m_debug_label_candidates.push_back(DebugLabelCandidate {
+	    .node_index = node_index,
 	    .rect = rect,
 	    .clip_rect = clip_rect,
 	    .color = color,
@@ -3016,9 +3036,26 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 	m_debug_label_rects.clear();
 	struct OverlayOccluder
 	{
+		uint16_t node_index { INVALID_NODE_INDEX };
 		Engine::Rect<> rect {};
 		Id key {};
 	};
+	auto const overlay_contains_node
+	    = [&](uint16_t const overlay_index, uint16_t const node_index) {
+		      if (overlay_index == INVALID_NODE_INDEX
+		          || node_index == INVALID_NODE_INDEX) {
+			      return false;
+		      }
+		      auto current_index { node_index };
+		      while (current_index != INVALID_NODE_INDEX
+		          && current_index < m_render_nodes.size()) {
+			      if (current_index == overlay_index) {
+				      return true;
+			      }
+			      current_index = m_render_nodes[current_index].parent_index;
+		      }
+		      return false;
+	      };
 	std::vector<OverlayOccluder> overlay_occluders {};
 	for (auto const &candidate : m_debug_label_candidates) {
 		auto const clipped { intersect_rects(
@@ -3029,6 +3066,7 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 
 		if (candidate.overlay) {
 			overlay_occluders.push_back(OverlayOccluder {
+			    .node_index = candidate.node_index,
 			    .rect = *clipped,
 			    .key = candidate.key,
 			});
@@ -3036,6 +3074,10 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 			auto occluded_by_overlay { false };
 			for (auto const &overlay : overlay_occluders) {
 				if (candidate.key == overlay.key) {
+					continue;
+				}
+				if (overlay_contains_node(
+				        overlay.node_index, candidate.node_index)) {
 					continue;
 				}
 				if (intersects(candidate.rect, overlay.rect)) {
@@ -3074,10 +3116,17 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 		auto const strip_y {
 			std::max(rect.position.y() + 1.0f, clip.position.y() + 1.0f),
 		};
+		auto const label_y_max { std::min(
+			rect.position.y() + rect.size.y() - 12.0f,
+			clip.position.y() + clip.size.y() - 12.0f) };
+		auto const strip_y_max { std::min(
+			rect.position.y() + rect.size.y() - strip_height - 1.0f,
+			clip.position.y() + clip.size.y() - strip_height - 1.0f) };
 		auto const label_x_max { std::min(
 			rect.position.x() + rect.size.x() - 8.0f,
 			clip.position.x() + clip.size.x() - 8.0f) };
-		if (label_x_max <= label_x) {
+		if (label_x_max <= label_x || label_y_max < label_y
+		    || strip_y_max < strip_y) {
 			continue;
 		}
 
@@ -3089,35 +3138,134 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 		} };
 		auto const shadow_color { smath::Vec4 { 0.0f, 0.0f, 0.0f, 0.78f } };
 
-		Engine::Rect<> label_rect {};
-		for (int pass { 0 }; pass < 16; ++pass) {
-			label_x
-			    = std::clamp(label_x, clip.position.x() + 1.0f, label_x_max);
+		auto const row_step { strip_height + 2.0f };
+		auto make_label_rect = [&](float const candidate_x,
+		                           float const candidate_strip_y) {
+			auto const clamped_x {
+				std::clamp(candidate_x, clip.position.x() + 1.0f, label_x_max),
+			};
 			auto const strip_x {
-				std::max(clip.position.x() + 1.0f, label_x - 2.0f),
+				std::max(clip.position.x() + 1.0f, clamped_x - 2.0f),
 			};
 			auto const strip_width {
 				std::max(8.0f,
 				    std::min(estimated_width,
 				        clip.position.x() + clip.size.x() - 1.0f - strip_x)),
 			};
-			label_rect = Engine::Rect<> {
-				.position = smath::Vec2 { strip_x, strip_y },
+			return Engine::Rect<> {
+				.position = smath::Vec2 { strip_x, candidate_strip_y },
 				.size = smath::Vec2 { strip_width, strip_height },
 			};
-
-			auto next_x { label_x };
+		};
+		auto row_blocked = [&](Engine::Rect<> const &candidate_rect) {
 			for (auto const &existing : m_debug_label_rects) {
-				if (!intersects(label_rect, existing)) {
+				auto const candidate_bottom {
+					candidate_rect.position.y() + candidate_rect.size.y(),
+				};
+				auto const existing_bottom {
+					existing.position.y() + existing.size.y(),
+				};
+				auto const vertical_overlap {
+					std::min(candidate_bottom, existing_bottom)
+					    - std::max(
+					        candidate_rect.position.y(), existing.position.y()),
+				};
+				if (vertical_overlap <= 0.0f) {
 					continue;
 				}
-				next_x = std::max(
-				    next_x, existing.position.x() + existing.size.x() + 2.0f);
+
+				auto const candidate_right {
+					candidate_rect.position.x() + candidate_rect.size.x(),
+				};
+				auto const existing_right {
+					existing.position.x() + existing.size.x(),
+				};
+				auto const horizontal_overlap {
+					std::min(candidate_right, existing_right)
+					    - std::max(
+					        candidate_rect.position.x(), existing.position.x()),
+				};
+				auto const same_lane {
+					horizontal_overlap >= std::min(candidate_rect.size.x(),
+					                          existing.size.x())
+					            * 0.4f
+					    || std::abs(candidate_rect.position.x()
+					           - existing.position.x())
+					        <= 10.0f,
+				};
+				if (same_lane) {
+					return true;
+				}
 			}
-			if (next_x <= label_x + 0.01f || next_x > label_x_max) {
+			return false;
+		};
+
+		float placed_label_x { label_x };
+		float placed_label_y { label_y };
+		Engine::Rect<> label_rect {};
+		bool placed {};
+
+		for (int row_pass { 0 }; row_pass < 16; ++row_pass) {
+			auto const row_label_y { label_y
+				+ row_step * static_cast<float>(row_pass) };
+			auto const row_strip_y { strip_y
+				+ row_step * static_cast<float>(row_pass) };
+			if (row_label_y > label_y_max || row_strip_y > strip_y_max) {
 				break;
 			}
-			label_x = next_x;
+			auto const candidate_rect { make_label_rect(label_x, row_strip_y) };
+			if (row_blocked(candidate_rect)) {
+				continue;
+			}
+			placed_label_x = label_x;
+			placed_label_y = row_label_y;
+			label_rect = candidate_rect;
+			placed = true;
+			break;
+		}
+
+		if (!placed) {
+			for (int row_pass { 0 }; row_pass < 16 && !placed; ++row_pass) {
+				auto const row_label_y {
+					label_y + row_step * static_cast<float>(row_pass),
+				};
+				auto const row_strip_y {
+					strip_y + row_step * static_cast<float>(row_pass),
+				};
+				if (row_label_y > label_y_max || row_strip_y > strip_y_max) {
+					break;
+				}
+
+				auto row_label_x { label_x };
+				for (int pass { 0 }; pass < 16; ++pass) {
+					auto const candidate_rect {
+						make_label_rect(row_label_x, row_strip_y),
+					};
+					auto next_x { row_label_x };
+					for (auto const &existing : m_debug_label_rects) {
+						if (!intersects(candidate_rect, existing)) {
+							continue;
+						}
+						next_x = std::max(next_x,
+						    existing.position.x() + existing.size.x() + 2.0f);
+					}
+					if (next_x <= row_label_x + 0.01f) {
+						placed_label_x = row_label_x;
+						placed_label_y = row_label_y;
+						label_rect = candidate_rect;
+						placed = true;
+						break;
+					}
+					if (next_x > label_x_max) {
+						break;
+					}
+					row_label_x = next_x;
+				}
+			}
+		}
+
+		if (!placed) {
+			continue;
 		}
 
 		draw_list.push_back(DrawCommand { .payload = DrawCommand::Rect {
@@ -3128,7 +3276,8 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 		    .payload = DrawCommand::Text {
 		        .value = label,
 		        .box = Engine::Rect<> {
-		            .position = smath::Vec2 { label_x + 1.0f, label_y + 1.0f },
+		            .position = smath::Vec2 {
+		                placed_label_x + 1.0f, placed_label_y + 1.0f },
 		            .size = smath::Vec2 { 256.0f, 16.0f },
 		        },
 		        .size = 10.0f,
@@ -3140,7 +3289,8 @@ auto System::draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void
 		    DrawCommand { .payload = DrawCommand::Text {
 		                      .value = std::move(label),
 		                      .box = Engine::Rect<> {
-		                          .position = smath::Vec2 { label_x, label_y },
+		                          .position = smath::Vec2 {
+		                              placed_label_x, placed_label_y },
 		                          .size = smath::Vec2 { 256.0f, 16.0f },
 		                      },
 		                      .size = 10.0f,
@@ -3168,7 +3318,8 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 		sync_focus();
 		m_render_nodes.clear();
 		m_render_nodes.reserve(NODE_POOL_MAX);
-		m_render_root_index = build_render_cache_node(*m_root, 0);
+		m_render_root_index
+		    = build_render_cache_node(*m_root, 0, INVALID_NODE_INDEX);
 		m_world_dirty = false;
 		rebuilt_draw_state = true;
 	}

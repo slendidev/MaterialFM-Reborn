@@ -325,6 +325,7 @@ private:
 		uint16_t depth {};
 		std::string const *label {};
 		std::string const *icon_name {};
+		uint16_t parent_index { INVALID_NODE_INDEX };
 		uint16_t first_child { INVALID_NODE_INDEX };
 		uint16_t next_sibling { INVALID_NODE_INDEX };
 	};
@@ -340,8 +341,8 @@ private:
 	auto collect_reconcile_nodes(std::unique_ptr<Node> node) -> void;
 	auto stash_orphan(std::unique_ptr<Node> node) -> void;
 	auto restore_memo_child(Node &parent, Node const &source) -> void;
-	auto build_render_cache_node(Node const &source, uint16_t depth)
-	    -> uint16_t;
+	auto build_render_cache_node(
+	    Node const &source, uint16_t depth, uint16_t parent_index) -> uint16_t;
 	auto find_node_by_key(Id key) -> Node *;
 	auto gather_focusables(Node &node, Scope scope, std::vector<Node *> &out)
 	    -> void;
@@ -372,6 +373,7 @@ private:
 	    bool parent_pressable_focused,
 	    bool parent_pressable_selected) -> void;
 	auto draw_debug_bounds(std::vector<DrawCommand> &draw_list,
+	    uint16_t node_index,
 	    Engine::Rect<> const rect,
 	    uint16_t depth,
 	    Id key,
@@ -477,6 +479,7 @@ private:
 	std::unordered_map<Id, Node *, Id::Hash> m_nodes_by_key {};
 	struct DebugLabelCandidate
 	{
+		uint16_t node_index { INVALID_NODE_INDEX };
 		Engine::Rect<> rect {};
 		Engine::Rect<> clip_rect {};
 		smath::Vec4 color {};
