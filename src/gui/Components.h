@@ -1,7 +1,6 @@
 #pragma once
 
 #include <functional>
-#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -13,8 +12,6 @@
 
 namespace Gui::components
 {
-
-struct ToastControl;
 
 struct ButtonStyle
 {
@@ -68,27 +65,6 @@ public:
 
 private:
 	ButtonStyle m_style {};
-};
-
-struct MenuItemStyle
-{
-	float height { 30.0f };
-	float corner_radius { 8.0f };
-	float text_size { 14.0f };
-	float icon_size { 24.0f };
-	float icon_gap { 8.0f };
-	float padding_x { 8.0f };
-	float padding_y { 3.0f };
-	std::optional<smath::Vec4> fill {};
-	std::optional<smath::Vec4> focused_fill {};
-	std::optional<smath::Vec4> selected_fill {};
-	std::optional<smath::Vec4> text_color {};
-	std::optional<smath::Vec4> selected_text_color {};
-	std::optional<smath::Vec4> icon_tint {};
-	std::optional<smath::Vec4> selected_icon_tint {};
-	bool draw_outline {};
-	float outline_thickness { 1.0f };
-	std::optional<smath::Vec4> outline_color {};
 };
 
 struct DialogStyle
@@ -218,15 +194,15 @@ class Toast
 public:
 	class Builder;
 
-	explicit Toast(std::string key);
-	explicit Toast(std::shared_ptr<ToastControl> control);
+	Toast(System *system, std::string key);
 	static auto builder(Context &ctx, Id key) -> Builder;
 	static auto builder(Context &ctx, std::string_view key) -> Builder;
 	auto show() const -> void;
 	auto show(std::string_view message) const -> void;
 
 private:
-	std::shared_ptr<ToastControl> m_control {};
+	System *m_system {};
+	std::string m_key {};
 };
 
 class Toast::Builder

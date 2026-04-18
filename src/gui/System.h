@@ -146,8 +146,6 @@ public:
 		int recomposed_dialog {};
 		int relaid_out_nodes {};
 		int rendered_nodes {};
-		int memo_hits {};
-		int memo_misses {};
 		int culled_nodes {};
 	};
 
@@ -155,6 +153,15 @@ public:
 	{
 		float width {};
 		float height {};
+	};
+
+	struct ToastState
+	{
+		bool active {};
+		uint32_t generation {};
+		std::string message {};
+		bool pending_show {};
+		std::optional<std::string> pending_message {};
 	};
 
 	System();
@@ -171,31 +178,31 @@ public:
 	auto compose(std::function<void(Context &)> const &fn) -> void;
 	auto end_frame(WindowHandle handle) -> WindowFrameOutput const &;
 
-	auto request_recompose() -> void
+	auto invalidate_compose() -> void
 	{
 		m_structure_dirty = true;
-		m_root_dirty = true;
+		m_root_scope_dirty = true;
 		if (m_is_composing) {
 			m_recompose_requested_during_compose = true;
 		}
 	}
-	auto request_layout() -> void
+	auto invalidate_layout() -> void
 	{
 		m_layout_dirty = true;
 		m_visual_dirty = true;
 	}
-	auto request_world() -> void
+	auto invalidate_world() -> void
 	{
 		m_world_dirty = true;
 		m_render_cache_dirty = true;
 		m_visual_dirty = true;
 	}
-	auto request_render_cache() -> void
+	auto invalidate_render_cache() -> void
 	{
 		m_render_cache_dirty = true;
 		m_visual_dirty = true;
 	}
-	auto request_visual() -> void { m_visual_dirty = true; }
+	auto invalidate_visual() -> void { m_visual_dirty = true; }
 	auto sidebar_open() const -> bool { return m_sidebar_open; }
 	auto dialog_open() const -> bool { return m_dialog_open; }
 	auto sidebar_visible() const -> bool
@@ -214,6 +221,24 @@ public:
 	auto set_text_measure_fn(
 	    std::function<smath::Vec2(std::string_view, float)> fn) -> void;
 	auto sample_animation_ref(Animation::Ref const &ref, Id owner_key) -> float;
+	auto toast_state(std::string_view key) -> ToastState &
+	{
+		m_toast_touched.insert(std::string(key));
+		auto const [it, _] {
+			m_toast_states.try_emplace(std::string(key), ToastState {}),
+		};
+		return it->second;
+	}
+	auto show_toast(std::string_view key,
+	    std::optional<std::string> message = std::nullopt) -> void
+	{
+		auto &toast { toast_state(key) };
+		toast.pending_show = true;
+		if (message.has_value()) {
+			toast.pending_message = std::move(message);
+		}
+		invalidate_compose();
+	}
 	template<typename T> auto remember_state(Id const key, T init) -> T &
 	{
 		m_state_touched.insert(key);
@@ -240,7 +265,7 @@ public:
 			}
 		}
 		stored = std::move(value);
-		request_recompose();
+		invalidate_compose();
 		m_visual_dirty = true;
 		return true;
 	}
@@ -263,10 +288,9 @@ public:
 	auto dump_command_list_stdout(WindowHandle handle) const -> void;
 	auto dump_command_list_file(
 	    WindowHandle handle, std::string_view path) const -> bool;
-	auto memo_should_recompose(Id key, uint32_t deps_hash) -> bool;
-	auto memo_store(Node const &node) -> void;
-	auto memo_restore(Node &node) -> bool;
 	auto mark_scope_recomposed(Scope scope) -> void;
+	auto mark_scope_dirty(Scope scope) -> void;
+	auto clear_scope_dirty_flags() -> void;
 
 	auto theme() -> Theme & { return m_theme; }
 	auto theme() const -> Theme const & { return m_theme; }
@@ -276,10 +300,10 @@ public:
 	    Scope scope,
 	    Id key,
 	    FlexOptions const &options) -> Node *;
-	auto mark_structure_change() -> void;
-	auto mark_layout_change() -> void;
-	auto mark_render_cache_change() -> void;
-	auto mark_visual_change() -> void;
+	auto mark_compose_dirty() -> void;
+	auto mark_layout_dirty() -> void;
+	auto mark_render_cache_dirty() -> void;
+	auto mark_visual_dirty() -> void;
 
 private:
 	static constexpr size_t NODE_POOL_MAX { 256 };
@@ -467,8 +491,6 @@ private:
 	    -> void;
 	auto handle_input() -> void;
 	auto tick_animation(float dt) -> void;
-	auto clone_node(Node const &source, Node *parent) const
-	    -> std::unique_ptr<Node>;
 	auto prune_state_store() -> void;
 	auto begin_compose_tracking() -> void;
 	auto end_compose_tracking() -> void;
@@ -486,9 +508,9 @@ private:
 	bool m_world_dirty { true };
 	bool m_render_cache_dirty { true };
 	bool m_visual_dirty { true };
-	bool m_root_dirty { true };
-	bool m_sidebar_dirty { true };
-	bool m_dialog_dirty { true };
+	bool m_root_scope_dirty { true };
+	bool m_sidebar_scope_dirty { true };
+	bool m_dialog_scope_dirty { true };
 	bool m_sidebar_open {};
 	bool m_dialog_open {};
 	bool m_selection_mode {};
@@ -542,13 +564,12 @@ private:
 	};
 	std::unordered_map<Id, TweenTrack, Id::Hash> m_tween_tracks {};
 	std::unordered_map<Id, std::any, Id::Hash> m_state_store {};
+	std::unordered_map<std::string, ToastState> m_toast_states {};
+	std::unordered_set<std::string> m_toast_touched {};
 	std::unordered_set<Id, Id::Hash> m_state_touched {};
 	std::function<smath::Vec2(std::string_view, float)> m_text_measure_fn {};
 	uint32_t m_icon_image_id {};
 	std::unordered_map<std::string, Engine::Rect<>> m_icon_rects {};
-	std::unordered_map<Id, uint32_t, Id::Hash> m_memo_deps {};
-	std::unordered_map<Id, std::vector<std::unique_ptr<Node>>, Id::Hash>
-	    m_memo_children {};
 	std::unordered_map<Id, std::unique_ptr<Node>, Id::Hash>
 	    m_reconcile_nodes {};
 	std::vector<std::unique_ptr<Node>> m_node_pool {};

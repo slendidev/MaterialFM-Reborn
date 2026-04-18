@@ -421,8 +421,8 @@ auto System::dump_tree_line(
 	std::format_to(std::back_inserter(out),
 	    "{} local_rect=({}, {}) rc={} sk={} key={}\n",
 	    kind_name,
-	    node.local_rect.position,
-	    node.local_rect.size,
+	    node.layout.local_rect.position,
+	    node.layout.local_rect.size,
 	    node.recompose_count,
 	    node.skip_count,
 	    node.key.label());

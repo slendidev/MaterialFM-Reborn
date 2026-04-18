@@ -1,24 +1,11 @@
 #include "gui/Components.h"
 
-#include <algorithm>
-#include <cstdint>
-#include <unordered_map>
-
-#include "gui/Node.h"
 #include "gui/System.h"
 #include "gui/Theme.h"
+#include <algorithm>
 
 namespace Gui::components
 {
-
-struct ToastControl
-{
-	std::string key {};
-	ToastStyle style {};
-	System *system {};
-	bool pending_show {};
-	std::string pending_message {};
-};
 
 namespace
 {
@@ -32,13 +19,6 @@ struct ResolvedButtonStyle
 	smath::Vec4 selected_text_color {};
 	smath::Vec4 selected_icon_tint {};
 	smath::Vec4 outline_color {};
-};
-
-struct ToastState
-{
-	bool active {};
-	uint32_t generation {};
-	std::string message {};
 };
 
 auto key_string_from_id(Id const key) -> std::string
@@ -100,28 +80,68 @@ auto resolve_dialog_fill(Theme const &theme,
 	    std::clamp(tonal_mix, 0.0f, 1.0f));
 }
 
-auto toast_controls()
-    -> std::unordered_map<std::string, std::shared_ptr<ToastControl>> &
+auto clamp_explicit_size(
+    bool const has_value, float const value, float const max_value) -> float
 {
-	static std::unordered_map<std::string, std::shared_ptr<ToastControl>>
-	    controls {};
-	return controls;
+	if (!has_value) {
+		return 0.0f;
+	}
+	return std::min(std::max(0.0f, value), max_value);
 }
 
-auto ensure_toast_control(std::string const &key, ToastStyle const &style)
-    -> std::shared_ptr<ToastControl>
+auto build_button_surface_style(ButtonStyle const &style,
+    ResolvedButtonStyle const &resolved) -> SurfaceStyle
 {
-	auto &controls { toast_controls() };
-	auto it { controls.find(key) };
-	if (it != controls.end()) {
-		it->second->style = style;
-		return it->second;
-	}
-	auto control { std::make_shared<ToastControl>() };
-	control->key = key;
-	control->style = style;
-	controls.emplace(key, control);
-	return control;
+	return SurfaceStyle::builder()
+	    .draw_fill(true)
+	    .draw_outline(style.draw_outline)
+	    .use_pressable_state(true)
+	    .radius(style.corner_radius)
+	    .outline_thickness(style.outline_thickness)
+	    .fill_color(resolved.fill)
+	    .focus_fill_color(resolved.focused_fill)
+	    .selected_fill_color(resolved.selected_fill)
+	    .outline_color(resolved.outline_color)
+	    .build();
+}
+
+auto build_button_icon_style(
+    ButtonStyle const &style, ResolvedButtonStyle const &resolved) -> IconStyle
+{
+	return IconStyle::builder()
+	    .size(style.icon_size)
+	    .use_pressable_state(true)
+	    .tint(resolved.icon_tint)
+	    .selected_tint(resolved.selected_icon_tint)
+	    .build();
+}
+
+auto build_button_label_style(
+    ButtonStyle const &style, ResolvedButtonStyle const &resolved) -> TextStyle
+{
+	return TextStyle::builder()
+	    .size(style.text_size)
+	    .use_pressable_state(true)
+	    .color(resolved.text_color)
+	    .selected_color(resolved.selected_text_color)
+	    .align_x(style.text_align_x)
+	    .align_y(style.text_align_y)
+	    .build();
+}
+
+auto build_layer_style(bool const draw_scrim,
+    smath::Vec4 const scrim,
+    bool const draw_fill,
+    float const radius,
+    smath::Vec4 const fill) -> LayerStyle
+{
+	return LayerStyle::builder()
+	    .draw_scrim(draw_scrim)
+	    .scrim_color(scrim)
+	    .draw_fill(draw_fill)
+	    .radius(radius)
+	    .fill_color(fill)
+	    .build();
 }
 
 auto render_button(Context &ctx,
@@ -142,17 +162,7 @@ auto render_button(Context &ctx,
 	    [&](Context &pressable) {
 		    pressable.surface(pressable.id("surface"),
 		        FlexOptions::builder().flex_grow(1.0f).build(),
-		        SurfaceStyle::builder()
-		            .draw_fill(true)
-		            .draw_outline(style.draw_outline)
-		            .use_pressable_state(true)
-		            .radius(style.corner_radius)
-		            .outline_thickness(style.outline_thickness)
-		            .fill_color(resolved.fill)
-		            .focus_fill_color(resolved.focused_fill)
-		            .selected_fill_color(resolved.selected_fill)
-		            .outline_color(resolved.outline_color)
-		            .build(),
+		        build_button_surface_style(style, resolved),
 		        [&](Context &surface) {
 			        surface.flex(surface.id("content"),
 			            FlexOptions::builder()
@@ -169,25 +179,11 @@ auto render_button(Context &ctx,
 				            if (icon_name) {
 					            content.icon(content.id("icon"),
 					                *icon_name,
-					                IconStyle::builder()
-					                    .size(style.icon_size)
-					                    .use_pressable_state(true)
-					                    .tint(resolved.icon_tint)
-					                    .selected_tint(
-					                        resolved.selected_icon_tint)
-					                    .build());
+					                build_button_icon_style(style, resolved));
 				            }
 				            content.text(content.id("label"),
 				                label,
-				                TextStyle::builder()
-				                    .size(style.text_size)
-				                    .use_pressable_state(true)
-				                    .color(resolved.text_color)
-				                    .selected_color(
-				                        resolved.selected_text_color)
-				                    .align_x(style.text_align_x)
-				                    .align_y(style.text_align_y)
-				                    .build(),
+				                build_button_label_style(style, resolved),
 				                FlexOptions::builder().flex_grow(1.0f).build());
 			            });
 		        });
@@ -210,13 +206,7 @@ auto render_sidebar(Context &ctx,
 	ctx.layer(key,
 	    LayerPresentation::Drawer,
 	    FlexOptions::builder().width(style.width).build(),
-	    LayerStyle::builder()
-	        .draw_scrim(true)
-	        .scrim_color(scrim)
-	        .draw_fill(true)
-	        .radius(style.corner_radius)
-	        .fill_color(fill)
-	        .build(),
+	    build_layer_style(true, scrim, true, style.corner_radius, fill),
 	    [&](Context &layer_ctx) {
 		    layer_ctx.scrollable(layer_ctx.id("drawer_scrollable"),
 		        Gui::ScrollOptions::builder().build(),
@@ -245,14 +235,12 @@ auto render_dialog(Context &ctx,
 		screen_height * std::clamp(style.max_height_ratio, 0.1f, 1.0f),
 	};
 	auto const dialog_width {
-		options.has_width()
-		    ? std::min(std::max(0.0f, options.width()), dialog_max_width)
-		    : 0.0f,
+		clamp_explicit_size(
+		    options.has_width(), options.width(), dialog_max_width),
 	};
 	auto const dialog_height {
-		options.has_height()
-		    ? std::min(std::max(0.0f, options.height()), dialog_max_height)
-		    : 0.0f,
+		clamp_explicit_size(
+		    options.has_height(), options.height(), dialog_max_height),
 	};
 	auto const &theme { ctx.theme() };
 	auto const scrim { style.scrim.value_or(theme.scrim) };
@@ -321,35 +309,25 @@ auto render_dialog(Context &ctx,
 auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 {
 	auto const key_string { key_string_from_id(key) };
-	auto control { ensure_toast_control(key_string, style) };
-	control->system = &ctx.system();
-	auto state_store {
-		ctx.mutable_state_of<ToastState>(key_string + "/state", ToastState {}),
-	};
-	auto state { state_store.get() };
-	auto const rising_edge { control->pending_show };
-	if (control->pending_show) {
-		state_store.update([&](ToastState &next) {
-			next.active = true;
-			next.generation += 1;
-			if (!control->pending_message.empty()) {
-				next.message = control->pending_message;
-			}
-		});
-		control->pending_show = false;
-		control->pending_message.clear();
-		state = state_store.get();
+	auto &toast_state { ctx.system().toast_state(key_string) };
+	auto const rising_edge { toast_state.pending_show };
+	if (toast_state.pending_show) {
+		toast_state.active = true;
+		toast_state.generation += 1;
+		if (toast_state.pending_message.has_value()) {
+			toast_state.message = std::move(*toast_state.pending_message);
+			toast_state.pending_message.reset();
+		}
+		toast_state.pending_show = false;
 	}
-	if (rising_edge) {
-		state = state_store.get();
-	}
+	auto const &state { toast_state };
 	if (state.message.empty() && !state.active) {
-		return Toast { std::move(control) };
+		return Toast { &ctx.system(), key_string };
 	}
 
-	auto const fade_in { std::max(0.001f, control->style.fade_in_s) };
-	auto const hold { std::max(0.0f, control->style.hold_s) };
-	auto const fade_out { std::max(0.001f, control->style.fade_out_s) };
+	auto const fade_in { std::max(0.001f, style.fade_in_s) };
+	auto const hold { std::max(0.0f, style.hold_s) };
+	auto const fade_out { std::max(0.001f, style.fade_out_s) };
 	auto const total { fade_in + hold + fade_out };
 
 	auto progress_anim {
@@ -389,11 +367,10 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 	auto const progress { std::clamp(
 		ctx.sample_animation(progress_ref), 0.0f, 1.0f) };
 	if (state.active && progress >= 0.999f && !rising_edge) {
-		state_store.update([](ToastState &next) { next.active = false; });
-		state = state_store.get();
+		toast_state.active = false;
 	}
-	if (!state.active && progress >= 0.999f) {
-		return Toast { std::move(control) };
+	if (!toast_state.active && progress >= 0.999f) {
+		return Toast { &ctx.system(), key_string };
 	}
 	ctx.request_recompose();
 
@@ -422,7 +399,7 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 		            .padding(std::array<float, 4> {
 		                0.0f,
 		                0.0f,
-		                std::max(0.0f, control->style.bottom_margin),
+		                std::max(0.0f, style.bottom_margin),
 		                0.0f,
 		            })
 		            .justify_content(JustifyContent::Center)
@@ -431,34 +408,34 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 		        [&](Context &bottom_center) {
 			        bottom_center.surface(bottom_center.id("toast_card"),
 			            FlexOptions::builder()
-			                .width(control->style.width)
-			                .height(control->style.min_height)
+			                .width(style.width)
+			                .height(style.min_height)
 			                .build(),
 			            SurfaceStyle::builder()
 			                .draw_fill(true)
 			                .draw_outline(false)
-			                .radius(std::max(control->style.corner_radius,
-			                    control->style.min_height * 0.5f))
+			                .radius(std::max(
+			                    style.corner_radius, style.min_height * 0.5f))
 			                .fill_color(fill)
 			                .build(),
 			            [&](Context &card) {
 				            card.flex(card.id("content"),
 				                FlexOptions::builder()
 				                    .row()
-				                    .width(control->style.width)
-				                    .height(control->style.min_height)
+				                    .width(style.width)
+				                    .height(style.min_height)
 				                    .padding(std::array<float, 2> {
-				                        control->style.padding_y,
-				                        control->style.padding_x,
+				                        style.padding_y,
+				                        style.padding_x,
 				                    })
 				                    .justify_content(JustifyContent::Center)
 				                    .align_items(AlignItems::Center)
 				                    .build(),
 				                [&](Context &content) {
 					                content.text(content.id("message"),
-					                    state_store.get().message,
+					                    toast_state.message,
 					                    TextStyle::builder()
-					                        .size(control->style.text_size)
+					                        .size(style.text_size)
 					                        .align_x(TextAlignX::Center)
 					                        .align_y(TextAlignY::Center)
 					                        .color(text_color)
@@ -469,7 +446,7 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 		        });
 	    });
 
-	return Toast { std::move(control) };
+	return Toast { &ctx.system(), key_string };
 }
 } // namespace
 
@@ -657,12 +634,8 @@ auto Dialog::Builder::build() -> void
 	render_dialog(m_ctx, m_key, m_options, m_content, m_style);
 }
 
-Toast::Toast(std::string key)
-    : m_control(ensure_toast_control(std::move(key), ToastStyle {}))
-{ }
-
-Toast::Toast(std::shared_ptr<ToastControl> control)
-    : m_control(std::move(control))
+Toast::Toast(System *const system, std::string key)
+    : m_system(system), m_key(std::move(key))
 { }
 
 auto Toast::builder(Context &ctx, Id const key) -> Toast::Builder
@@ -690,25 +663,18 @@ auto Toast::Builder::build() -> Toast
 
 auto Toast::show() const -> void
 {
-	if (!m_control) {
+	if (m_system == nullptr) {
 		return;
 	}
-	m_control->pending_show = true;
-	if (m_control->system != nullptr) {
-		m_control->system->request_recompose();
-	}
+	m_system->show_toast(m_key);
 }
 
 auto Toast::show(std::string_view const message) const -> void
 {
-	if (!m_control) {
+	if (m_system == nullptr) {
 		return;
 	}
-	m_control->pending_message = std::string(message);
-	m_control->pending_show = true;
-	if (m_control->system != nullptr) {
-		m_control->system->request_recompose();
-	}
+	m_system->show_toast(m_key, std::string(message));
 }
 
 } // namespace Gui::components

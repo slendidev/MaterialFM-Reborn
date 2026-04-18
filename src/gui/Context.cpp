@@ -32,7 +32,7 @@ auto assign_layout(T &field, T value, System &system) -> void
 		}
 	}
 	field = std::move(value);
-	system.mark_layout_change();
+	system.mark_layout_dirty();
 }
 
 template<typename T>
@@ -46,7 +46,7 @@ auto assign_visual(T &field, T value, System &system) -> void
 		}
 	}
 	field = std::move(value);
-	system.mark_visual_change();
+	system.mark_visual_dirty();
 }
 
 template<typename T>
@@ -60,7 +60,7 @@ auto assign_world(T &field, T value, System &system) -> void
 		}
 	}
 	field = std::move(value);
-	system.request_world();
+	system.invalidate_world();
 }
 } // namespace
 
@@ -71,12 +71,12 @@ auto FlexOptions::builder() -> Builder
 
 auto FlexOptions::width() const -> float
 {
-	return animated_value_fallback(m_width);
+	return animated_value_fallback(m_common.width);
 }
 
 auto FlexOptions::height() const -> float
 {
-	return animated_value_fallback(m_height);
+	return animated_value_fallback(m_common.height);
 }
 
 auto FlexOptions::Builder::row() -> Builder &
@@ -136,7 +136,7 @@ auto FlexOptions::Builder::align_content(AlignContent const value) -> Builder &
 
 auto FlexOptions::Builder::align_self(AlignSelf const value) -> Builder &
 {
-	m_options.m_align_self = value;
+	m_options.m_common.align_self = value;
 	return *this;
 }
 
@@ -160,111 +160,111 @@ auto FlexOptions::Builder::column_gap(float const value) -> Builder &
 
 auto FlexOptions::Builder::width(float const value) -> Builder &
 {
-	m_options.m_width = value;
+	m_options.m_common.width = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::width(Animation::Ref value) -> Builder &
 {
-	m_options.m_width = std::move(value);
+	m_options.m_common.width = std::move(value);
 	return *this;
 }
 
 auto FlexOptions::Builder::height(float const value) -> Builder &
 {
-	m_options.m_height = value;
+	m_options.m_common.height = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::height(Animation::Ref value) -> Builder &
 {
-	m_options.m_height = std::move(value);
+	m_options.m_common.height = std::move(value);
 	return *this;
 }
 
 auto FlexOptions::Builder::flex(float const grow, float const shrink)
     -> Builder &
 {
-	m_options.m_flex_grow = grow;
-	m_options.m_flex_shrink = shrink;
+	m_options.m_common.flex_grow = grow;
+	m_options.m_common.flex_shrink = shrink;
 	return *this;
 }
 
 auto FlexOptions::Builder::flex_grow(float const value) -> Builder &
 {
-	m_options.m_flex_grow = value;
+	m_options.m_common.flex_grow = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::flex_shrink(float const value) -> Builder &
 {
-	m_options.m_flex_shrink = value;
+	m_options.m_common.flex_shrink = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::flex_basis_px(float const value) -> Builder &
 {
-	m_options.m_flex_basis = value;
+	m_options.m_common.flex_basis = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::flex_basis_auto() -> Builder &
 {
-	m_options.m_flex_basis.reset();
+	m_options.m_common.flex_basis.reset();
 	return *this;
 }
 
 auto FlexOptions::Builder::min_width(float const value) -> Builder &
 {
-	m_options.m_min_width = value;
+	m_options.m_common.min_width = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::min_height(float const value) -> Builder &
 {
-	m_options.m_min_height = value;
+	m_options.m_common.min_height = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::max_width(float const value) -> Builder &
 {
-	m_options.m_max_width = value;
+	m_options.m_common.max_width = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::max_height(float const value) -> Builder &
 {
-	m_options.m_max_height = value;
+	m_options.m_common.max_height = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::padding(float const value) -> Builder &
 {
-	m_options.m_padding = value;
+	m_options.m_common.padding = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::padding(std::array<float, 2> const value)
     -> Builder &
 {
-	m_options.m_padding = value;
+	m_options.m_common.padding = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::padding(std::array<float, 4> const value)
     -> Builder &
 {
-	m_options.m_padding = value;
+	m_options.m_common.padding = value;
 	return *this;
 }
 
 auto FlexOptions::Builder::merge(FlexOptions const &options) -> Builder &
 {
 	if (options.has_width()) {
-		m_options.m_width = options.width_value();
+		m_options.m_common.width = options.width_value();
 	}
 	if (options.has_height()) {
-		m_options.m_height = options.height_value();
+		m_options.m_common.height = options.height_value();
 	}
 
 	if (options.has_gap()) {
@@ -278,30 +278,30 @@ auto FlexOptions::Builder::merge(FlexOptions const &options) -> Builder &
 	}
 
 	if (options.flex_grow() != 0.0f) {
-		m_options.m_flex_grow = options.flex_grow();
+		m_options.m_common.flex_grow = options.flex_grow();
 	}
 	if (options.flex_shrink() != 1.0f) {
-		m_options.m_flex_shrink = options.flex_shrink();
+		m_options.m_common.flex_shrink = options.flex_shrink();
 	}
 	if (options.has_flex_basis()) {
-		m_options.m_flex_basis = options.flex_basis();
+		m_options.m_common.flex_basis = options.flex_basis();
 	}
 
 	if (options.has_min_width()) {
-		m_options.m_min_width = options.min_width();
+		m_options.m_common.min_width = options.min_width();
 	}
 	if (options.has_min_height()) {
-		m_options.m_min_height = options.min_height();
+		m_options.m_common.min_height = options.min_height();
 	}
 	if (options.has_max_width()) {
-		m_options.m_max_width = options.max_width();
+		m_options.m_common.max_width = options.max_width();
 	}
 	if (options.has_max_height()) {
-		m_options.m_max_height = options.max_height();
+		m_options.m_common.max_height = options.max_height();
 	}
 
 	if (options.align_self() != AlignSelf::Auto) {
-		m_options.m_align_self = options.align_self();
+		m_options.m_common.align_self = options.align_self();
 	}
 
 	return *this;
@@ -356,95 +356,95 @@ auto ScrollOptions::Builder::step(float const value) -> Builder &
 
 auto ScrollOptions::Builder::max_width(float const value) -> Builder &
 {
-	m_options.m_max_width = value;
+	m_options.m_common.max_width = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::max_height(float const value) -> Builder &
 {
-	m_options.m_max_height = value;
+	m_options.m_common.max_height = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::min_width(float const value) -> Builder &
 {
-	m_options.m_min_width = value;
+	m_options.m_common.min_width = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::min_height(float const value) -> Builder &
 {
-	m_options.m_min_height = value;
+	m_options.m_common.min_height = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::width(float const value) -> Builder &
 {
-	m_options.m_width = value;
+	m_options.m_common.width = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::height(float const value) -> Builder &
 {
-	m_options.m_height = value;
+	m_options.m_common.height = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::flex(float const grow, float const shrink)
     -> Builder &
 {
-	m_options.m_flex_grow = grow;
-	m_options.m_flex_shrink = shrink;
+	m_options.m_common.flex_grow = grow;
+	m_options.m_common.flex_shrink = shrink;
 	return *this;
 }
 
 auto ScrollOptions::Builder::flex_grow(float const value) -> Builder &
 {
-	m_options.m_flex_grow = value;
+	m_options.m_common.flex_grow = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::flex_shrink(float const value) -> Builder &
 {
-	m_options.m_flex_shrink = value;
+	m_options.m_common.flex_shrink = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::flex_basis_px(float const value) -> Builder &
 {
-	m_options.m_flex_basis = value;
+	m_options.m_common.flex_basis = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::flex_basis_auto() -> Builder &
 {
-	m_options.m_flex_basis.reset();
+	m_options.m_common.flex_basis.reset();
 	return *this;
 }
 
 auto ScrollOptions::Builder::align_self(AlignSelf const value) -> Builder &
 {
-	m_options.m_align_self = value;
+	m_options.m_common.align_self = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::padding(float const value) -> Builder &
 {
-	m_options.m_padding = value;
+	m_options.m_common.padding = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::padding(std::array<float, 2> const value)
     -> Builder &
 {
-	m_options.m_padding = value;
+	m_options.m_common.padding = value;
 	return *this;
 }
 
 auto ScrollOptions::Builder::padding(std::array<float, 4> const value)
     -> Builder &
 {
-	m_options.m_padding = value;
+	m_options.m_common.padding = value;
 	return *this;
 }
 
@@ -456,30 +456,39 @@ auto ScrollOptions::Builder::build() const -> ScrollOptions
 auto ScrollOptions::as_flex_options() const -> FlexOptions
 {
 	auto builder { FlexOptions::builder() };
-	std::visit([&](auto const &value) { builder.padding(value); }, m_padding);
-	if (m_width.has_value()) {
-		builder.width(*m_width);
+	std::visit(
+	    [&](auto const &value) { builder.padding(value); }, m_common.padding);
+	if (m_common.width.has_value()) {
+		if (auto const *value { std::get_if<float>(&*m_common.width) }) {
+			builder.width(*value);
+		} else {
+			builder.width(std::get<Animation::Ref>(*m_common.width));
+		}
 	}
-	if (m_height.has_value()) {
-		builder.height(*m_height);
+	if (m_common.height.has_value()) {
+		if (auto const *value { std::get_if<float>(&*m_common.height) }) {
+			builder.height(*value);
+		} else {
+			builder.height(std::get<Animation::Ref>(*m_common.height));
+		}
 	}
-	if (m_min_width.has_value()) {
-		builder.min_width(*m_min_width);
+	if (m_common.min_width.has_value()) {
+		builder.min_width(*m_common.min_width);
 	}
-	if (m_min_height.has_value()) {
-		builder.min_height(*m_min_height);
+	if (m_common.min_height.has_value()) {
+		builder.min_height(*m_common.min_height);
 	}
-	if (m_max_width.has_value()) {
-		builder.max_width(*m_max_width);
+	if (m_common.max_width.has_value()) {
+		builder.max_width(*m_common.max_width);
 	}
-	if (m_max_height.has_value()) {
-		builder.max_height(*m_max_height);
+	if (m_common.max_height.has_value()) {
+		builder.max_height(*m_common.max_height);
 	}
-	builder.flex_grow(m_flex_grow)
-	    .flex_shrink(m_flex_shrink)
-	    .align_self(m_align_self);
-	if (m_flex_basis.has_value()) {
-		builder.flex_basis_px(*m_flex_basis);
+	builder.flex_grow(m_common.flex_grow)
+	    .flex_shrink(m_common.flex_shrink)
+	    .align_self(m_common.align_self);
+	if (m_common.flex_basis.has_value()) {
+		builder.flex_basis_px(*m_common.flex_basis);
 	}
 	return builder.build();
 }
@@ -725,14 +734,16 @@ auto Context::text(Id const key,
     FlexOptions const &options) -> void
 {
 	auto *node { push_node(Kind::Text, key, m_scope, options) };
-	assign_layout(node->label, std::string(label), m_system);
-	assign_layout(node->text_size, style.size, m_system);
-	assign_visual(node->text_align_x, style.align_x, m_system);
-	assign_visual(node->text_align_y, style.align_y, m_system);
+	assign_layout(node->content.label, std::string(label), m_system);
+	assign_layout(node->content.text_size, style.size, m_system);
+	assign_visual(node->content.text_align_x, style.align_x, m_system);
+	assign_visual(node->content.text_align_y, style.align_y, m_system);
+	assign_visual(node->interaction.use_pressable_state,
+	    style.use_pressable_state,
+	    m_system);
+	assign_visual(node->visual.text_color, style.color, m_system);
 	assign_visual(
-	    node->use_pressable_state, style.use_pressable_state, m_system);
-	assign_visual(node->text_color, style.color, m_system);
-	assign_visual(node->selected_text_color, style.selected_color, m_system);
+	    node->visual.selected_text_color, style.selected_color, m_system);
 	pop_node();
 }
 
@@ -740,12 +751,14 @@ auto Context::icon(
     Id const key, std::string_view const icon_name, IconStyle style) -> void
 {
 	auto *node { push_node(Kind::Icon, key, m_scope) };
-	assign_visual(node->icon_name, std::string(icon_name), m_system);
-	assign_layout(node->icon_size, style.size, m_system);
+	assign_visual(node->content.icon_name, std::string(icon_name), m_system);
+	assign_layout(node->content.icon_size, style.size, m_system);
+	assign_visual(node->interaction.use_pressable_state,
+	    style.use_pressable_state,
+	    m_system);
+	assign_visual(node->visual.icon_tint, style.tint, m_system);
 	assign_visual(
-	    node->use_pressable_state, style.use_pressable_state, m_system);
-	assign_visual(node->icon_tint, style.tint, m_system);
-	assign_visual(node->selected_icon_tint, style.selected_tint, m_system);
+	    node->visual.selected_icon_tint, style.selected_tint, m_system);
 	pop_node();
 }
 
@@ -755,17 +768,20 @@ auto Context::surface(Id const key,
     ComposeFn const &fn) -> void
 {
 	auto *node { push_node(Kind::Surface, key, m_scope, options) };
-	assign_visual(node->draw_fill, style.draw_fill, m_system);
-	assign_visual(node->draw_outline, style.draw_outline, m_system);
+	assign_visual(node->visual.draw_fill, style.draw_fill, m_system);
+	assign_visual(node->visual.draw_outline, style.draw_outline, m_system);
+	assign_visual(node->interaction.use_pressable_state,
+	    style.use_pressable_state,
+	    m_system);
+	assign_visual(node->visual.corner_radius, style.radius, m_system);
 	assign_visual(
-	    node->use_pressable_state, style.use_pressable_state, m_system);
-	assign_visual(node->corner_radius, style.radius, m_system);
-	assign_visual(node->outline_thickness, style.outline_thickness, m_system);
-	assign_visual(node->fill_color, style.fill_color, m_system);
-	assign_visual(node->focus_fill_color, style.focus_fill_color, m_system);
+	    node->visual.outline_thickness, style.outline_thickness, m_system);
+	assign_visual(node->visual.fill_color, style.fill_color, m_system);
 	assign_visual(
-	    node->selected_fill_color, style.selected_fill_color, m_system);
-	assign_visual(node->outline_color, style.outline_color, m_system);
+	    node->visual.focus_fill_color, style.focus_fill_color, m_system);
+	assign_visual(
+	    node->visual.selected_fill_color, style.selected_fill_color, m_system);
+	assign_visual(node->visual.outline_color, style.outline_color, m_system);
 	fn(*this);
 	pop_node();
 }
@@ -777,9 +793,9 @@ auto Context::pressable(Id const key,
     ComposeFn const &fn) -> void
 {
 	auto *node { push_node(Kind::Pressable, key, m_scope, options) };
-	assign_visual(node->interactive, true, m_system);
-	assign_visual(node->selectable, selectable, m_system);
-	node->on_activate = std::move(on_activate);
+	assign_visual(node->interaction.interactive, true, m_system);
+	assign_visual(node->interaction.selectable, selectable, m_system);
+	node->interaction.on_activate = std::move(on_activate);
 	fn(*this);
 	pop_node();
 }
@@ -803,52 +819,40 @@ auto Context::layer(Id const key,
 		break;
 	}
 	auto *node { push_node(Kind::Layer, key, m_scope, options) };
-	assign_visual(node->layer_presentation, presentation, m_system);
-	assign_visual(node->draw_scrim, style.draw_scrim, m_system);
-	assign_visual(node->scrim_color, style.scrim_color, m_system);
-	assign_visual(node->draw_fill, style.draw_fill, m_system);
-	assign_visual(node->corner_radius, style.radius, m_system);
-	assign_visual(node->fill_color, style.fill_color, m_system);
+	assign_visual(node->visual.layer_presentation, presentation, m_system);
+	assign_visual(node->visual.draw_scrim, style.draw_scrim, m_system);
+	assign_visual(node->visual.scrim_color, style.scrim_color, m_system);
+	assign_visual(node->visual.draw_fill, style.draw_fill, m_system);
+	assign_visual(node->visual.corner_radius, style.radius, m_system);
+	assign_visual(node->visual.fill_color, style.fill_color, m_system);
 	if (style.animated_opacity.has_value()) {
 		auto const animated_changed {
-			!node->animated_opacity.has_value()
-			    || node->animated_opacity->key != style.animated_opacity->key
-			    || node->animated_opacity->generation
+			!node->visual.animated_opacity.has_value()
+			    || node->visual.animated_opacity->key
+			        != style.animated_opacity->key
+			    || node->visual.animated_opacity->generation
 			        != style.animated_opacity->generation,
 		};
 		if (animated_changed) {
-			assign_visual(node->opacity, style.opacity, m_system);
+			assign_visual(node->visual.opacity, style.opacity, m_system);
 		}
-		node->animated_opacity = style.animated_opacity;
+		node->visual.animated_opacity = style.animated_opacity;
 	} else {
-		if (node->animated_opacity.has_value()) {
-			node->animated_opacity.reset();
-			m_system.mark_visual_change();
+		if (node->visual.animated_opacity.has_value()) {
+			node->visual.animated_opacity.reset();
+			m_system.mark_visual_dirty();
 		}
-		assign_visual(node->opacity, style.opacity, m_system);
+		assign_visual(node->visual.opacity, style.opacity, m_system);
 	}
 	fn(*this);
 	pop_node();
 	m_scope = previous_scope;
 }
 
-auto Context::memo(Id const key, uint32_t const deps_hash, ComposeFn const &fn)
-    -> void
-{
-	auto *node { push_node(Kind::Memo, key, m_scope) };
-	if (m_system.memo_should_recompose(node->key, deps_hash)) {
-		fn(*this);
-		m_system.memo_store(*node);
-	} else {
-		m_system.memo_restore(*node);
-	}
-	pop_node();
-}
-
 auto Context::spacer(Id const key, float const height) -> void
 {
 	auto *node { push_node(Kind::Spacer, key, m_scope) };
-	assign_layout(node->fixed_height, height, m_system);
+	assign_layout(node->layout.fixed_height, height, m_system);
 	pop_node();
 }
 
@@ -865,11 +869,12 @@ auto Context::scrollable(
 {
 	auto *node { push_node(
 		Kind::Scrollable, key, m_scope, options.as_flex_options()) };
-	assign_layout(node->scroll_axis, options.axis(), m_system);
-	assign_layout(node->scroll_reveal_mode, options.reveal_mode(), m_system);
-	assign_world(node->scroll_step, options.step(), m_system);
-	assign_layout(node->max_width, options.max_width(), m_system);
-	assign_layout(node->max_height, options.max_height(), m_system);
+	assign_layout(node->scroll.scroll_axis, options.axis(), m_system);
+	assign_layout(
+	    node->scroll.scroll_reveal_mode, options.reveal_mode(), m_system);
+	assign_world(node->scroll.scroll_step, options.step(), m_system);
+	assign_layout(node->layout.max_width, options.max_width(), m_system);
+	assign_layout(node->layout.max_height, options.max_height(), m_system);
 	if (fn) {
 		fn(*this);
 	}
@@ -953,7 +958,7 @@ auto Context::new_id(std::string_view const prefix) -> std::string
 
 auto Context::request_recompose() -> void
 {
-	m_system.request_recompose();
+	m_system.invalidate_compose();
 }
 
 auto Context::selection_mode() const -> bool

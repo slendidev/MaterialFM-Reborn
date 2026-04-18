@@ -761,7 +761,7 @@ auto System::emit_node_self_into_passes(PassBuckets &passes,
 	}
 
 	if (node.kind == Kind::Flex || node.kind == Kind::Root
-	    || node.kind == Kind::Spacer || node.kind == Kind::Memo) {
+	    || node.kind == Kind::Spacer) {
 		stop_after_self = false;
 		return;
 	}

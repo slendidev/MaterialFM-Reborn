@@ -173,40 +173,33 @@ auto Application::on_update(float const dt) -> void
 			            .color(m_gui.theme().on_surface_variant)
 			            .selected_color(m_gui.theme().on_primary)
 			            .build());
-			    ctx.memo(ctx.id("library_memo"),
-			        0xA11CEu,
-			        [&](Gui::Context &memo_ctx) {
-				        memo_ctx.scrollable(memo_ctx.id("library"),
-				            Gui::ScrollOptions::builder()
-				                .reveal_mode(
-				                    Gui::ScrollRevealMode::IncludePadding)
+			    ctx.scrollable(ctx.id("library"),
+			        Gui::ScrollOptions::builder()
+			            .reveal_mode(Gui::ScrollRevealMode::IncludePadding)
+			            .build(),
+			        [&](Gui::Context &scroll) {
+				        scroll.flex(scroll.id("library_list"),
+				            Gui::FlexOptions::builder()
+				                .column()
+				                .padding(std::array<float, 4> {
+				                    0.0f, 0.0f, 10.0f, 0.0f })
+				                .gap(4.0f)
 				                .build(),
-				            [&](Gui::Context &scroll) {
-					            scroll.flex(scroll.id("library_list"),
-					                Gui::FlexOptions::builder()
-					                    .column()
-					                    .padding(std::array<float, 4> {
-					                        0.0f, 0.0f, 10.0f, 0.0f })
-					                    .gap(4.0f)
-					                    .build(),
-					                [&](Gui::Context &list) {
-						                Gui::components::Button::builder(
-						                    list, "track_1")
-						                    .label("Track 1")
-						                    .on_activate([&]() { })
-						                    .selectable(true)
-						                    .build();
-						                for (int i = 2; i < 10; i++) {
-							                Gui::components::Button::builder(
-							                    list,
-							                    std::format("track_{}", i))
-							                    .label(
-							                        std::format("Track {}", i))
-							                    .on_activate([&]() { })
-							                    .selectable(true)
-							                    .build();
-						                }
-					                });
+				            [&](Gui::Context &list) {
+					            Gui::components::Button::builder(
+					                list, "track_1")
+					                .label("Track 1")
+					                .on_activate([&]() { })
+					                .selectable(true)
+					                .build();
+					            for (int i = 2; i < 10; i++) {
+						            Gui::components::Button::builder(
+						                list, std::format("track_{}", i))
+						                .label(std::format("Track {}", i))
+						                .on_activate([&]() { })
+						                .selectable(true)
+						                .build();
+					            }
 				            });
 			        });
 		    });

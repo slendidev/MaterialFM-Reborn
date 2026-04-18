@@ -20,36 +20,69 @@ namespace Gui
 
 struct Theme;
 
+using LayoutPadding
+    = std::variant<float, std::array<float, 2>, std::array<float, 4>>;
+using LayoutAnimatedFloat = std::variant<float, Animation::Ref>;
+
+struct CommonLayoutOptionsData
+{
+	LayoutPadding padding { 0.0f };
+	std::optional<LayoutAnimatedFloat> width {};
+	std::optional<LayoutAnimatedFloat> height {};
+	float flex_grow { 0.0f };
+	float flex_shrink { 1.0f };
+	std::optional<float> flex_basis {};
+	std::optional<float> min_width {};
+	std::optional<float> min_height {};
+	std::optional<float> max_width {};
+	std::optional<float> max_height {};
+	AlignSelf align_self { AlignSelf::Auto };
+};
+
 class FlexOptions
 {
 public:
-	using Padding
-	    = std::variant<float, std::array<float, 2>, std::array<float, 4>>;
-	using AnimatedFloat = std::variant<float, Animation::Ref>;
+	using Padding = LayoutPadding;
+	using AnimatedFloat = LayoutAnimatedFloat;
 	class Builder;
 
 	static auto builder() -> Builder;
 
-	auto padding() const -> Padding const & { return m_padding; }
-	auto has_width() const -> bool { return m_width.has_value(); }
-	auto has_height() const -> bool { return m_height.has_value(); }
+	auto padding() const -> Padding const & { return m_common.padding; }
+	auto has_width() const -> bool { return m_common.width.has_value(); }
+	auto has_height() const -> bool { return m_common.height.has_value(); }
 	auto has_gap() const -> bool { return m_gap.has_value(); }
 	auto has_row_gap() const -> bool { return m_row_gap.has_value(); }
 	auto has_column_gap() const -> bool { return m_column_gap.has_value(); }
-	auto has_flex_basis() const -> bool { return m_flex_basis.has_value(); }
-	auto has_min_width() const -> bool { return m_min_width.has_value(); }
-	auto has_min_height() const -> bool { return m_min_height.has_value(); }
-	auto has_max_width() const -> bool { return m_max_width.has_value(); }
-	auto has_max_height() const -> bool { return m_max_height.has_value(); }
+	auto has_flex_basis() const -> bool
+	{
+		return m_common.flex_basis.has_value();
+	}
+	auto has_min_width() const -> bool
+	{
+		return m_common.min_width.has_value();
+	}
+	auto has_min_height() const -> bool
+	{
+		return m_common.min_height.has_value();
+	}
+	auto has_max_width() const -> bool
+	{
+		return m_common.max_width.has_value();
+	}
+	auto has_max_height() const -> bool
+	{
+		return m_common.max_height.has_value();
+	}
 	auto width() const -> float;
 	auto height() const -> float;
 	auto width_value() const -> std::optional<AnimatedFloat> const &
 	{
-		return m_width;
+		return m_common.width;
 	}
 	auto height_value() const -> std::optional<AnimatedFloat> const &
 	{
-		return m_height;
+		return m_common.height;
 	}
 	auto gap() const -> float { return m_gap.value_or(0.0f); }
 	auto row_gap() const -> float { return m_row_gap.value_or(gap()); }
@@ -59,37 +92,42 @@ public:
 	auto justify_content() const -> JustifyContent { return m_justify_content; }
 	auto align_items() const -> AlignItems { return m_align_items; }
 	auto align_content() const -> AlignContent { return m_align_content; }
-	auto align_self() const -> AlignSelf { return m_align_self; }
-	auto flex_grow() const -> float { return m_flex_grow; }
-	auto flex_shrink() const -> float { return m_flex_shrink; }
-	auto flex_basis() const -> float { return m_flex_basis.value_or(-1.0f); }
-	auto min_width() const -> float { return m_min_width.value_or(0.0f); }
-	auto min_height() const -> float { return m_min_height.value_or(0.0f); }
-	auto max_width() const -> float { return m_max_width.value_or(0.0f); }
-	auto max_height() const -> float { return m_max_height.value_or(0.0f); }
+	auto align_self() const -> AlignSelf { return m_common.align_self; }
+	auto flex_grow() const -> float { return m_common.flex_grow; }
+	auto flex_shrink() const -> float { return m_common.flex_shrink; }
+	auto flex_basis() const -> float
+	{
+		return m_common.flex_basis.value_or(-1.0f);
+	}
+	auto min_width() const -> float
+	{
+		return m_common.min_width.value_or(0.0f);
+	}
+	auto min_height() const -> float
+	{
+		return m_common.min_height.value_or(0.0f);
+	}
+	auto max_width() const -> float
+	{
+		return m_common.max_width.value_or(0.0f);
+	}
+	auto max_height() const -> float
+	{
+		return m_common.max_height.value_or(0.0f);
+	}
 
 private:
 	FlexOptions() = default;
 
-	Padding m_padding { 0.0f };
+	CommonLayoutOptionsData m_common {};
 	std::optional<float> m_gap {};
 	std::optional<float> m_row_gap {};
 	std::optional<float> m_column_gap {};
-	std::optional<AnimatedFloat> m_width {};
-	std::optional<AnimatedFloat> m_height {};
-	float m_flex_grow { 0.0f };
-	float m_flex_shrink { 1.0f };
-	std::optional<float> m_flex_basis {};
-	std::optional<float> m_min_width {};
-	std::optional<float> m_min_height {};
-	std::optional<float> m_max_width {};
-	std::optional<float> m_max_height {};
 	FlexDirection m_direction { FlexDirection::Column };
 	FlexWrap m_wrap { FlexWrap::NoWrap };
 	JustifyContent m_justify_content { JustifyContent::Start };
 	AlignItems m_align_items { AlignItems::Stretch };
 	AlignContent m_align_content { AlignContent::Start };
-	AlignSelf m_align_self { AlignSelf::Auto };
 
 	friend class Builder;
 };
@@ -136,7 +174,7 @@ private:
 class ScrollOptions
 {
 public:
-	using Padding = FlexOptions::Padding;
+	using Padding = LayoutPadding;
 	class Builder;
 
 	static auto builder() -> Builder;
@@ -144,38 +182,73 @@ public:
 	auto axis() const -> ScrollAxis { return m_axis; }
 	auto reveal_mode() const -> ScrollRevealMode { return m_reveal_mode; }
 	auto step() const -> float { return m_step; }
-	auto has_width() const -> bool { return m_width.has_value(); }
-	auto has_height() const -> bool { return m_height.has_value(); }
-	auto has_flex_basis() const -> bool { return m_flex_basis.has_value(); }
-	auto has_min_width() const -> bool { return m_min_width.has_value(); }
-	auto has_min_height() const -> bool { return m_min_height.has_value(); }
-	auto has_max_width() const -> bool { return m_max_width.has_value(); }
-	auto has_max_height() const -> bool { return m_max_height.has_value(); }
-	auto width() const -> float { return m_width.value_or(0.0f); }
-	auto height() const -> float { return m_height.value_or(0.0f); }
+	auto has_width() const -> bool { return m_common.width.has_value(); }
+	auto has_height() const -> bool { return m_common.height.has_value(); }
+	auto has_flex_basis() const -> bool
+	{
+		return m_common.flex_basis.has_value();
+	}
+	auto has_min_width() const -> bool
+	{
+		return m_common.min_width.has_value();
+	}
+	auto has_min_height() const -> bool
+	{
+		return m_common.min_height.has_value();
+	}
+	auto has_max_width() const -> bool
+	{
+		return m_common.max_width.has_value();
+	}
+	auto has_max_height() const -> bool
+	{
+		return m_common.max_height.has_value();
+	}
+	auto width() const -> float
+	{
+		if (!m_common.width.has_value()) {
+			return 0.0f;
+		}
+		if (auto const *value { std::get_if<float>(&*m_common.width) }) {
+			return *value;
+		}
+		return std::get<Animation::Ref>(*m_common.width).fallback;
+	}
+	auto height() const -> float
+	{
+		if (!m_common.height.has_value()) {
+			return 0.0f;
+		}
+		if (auto const *value { std::get_if<float>(&*m_common.height) }) {
+			return *value;
+		}
+		return std::get<Animation::Ref>(*m_common.height).fallback;
+	}
 	auto as_flex_options() const -> FlexOptions;
-	auto max_width() const -> float { return m_max_width.value_or(0.0f); }
-	auto max_height() const -> float { return m_max_height.value_or(0.0f); }
-	auto min_width() const -> float { return m_min_width.value_or(0.0f); }
-	auto min_height() const -> float { return m_min_height.value_or(0.0f); }
+	auto max_width() const -> float
+	{
+		return m_common.max_width.value_or(0.0f);
+	}
+	auto max_height() const -> float
+	{
+		return m_common.max_height.value_or(0.0f);
+	}
+	auto min_width() const -> float
+	{
+		return m_common.min_width.value_or(0.0f);
+	}
+	auto min_height() const -> float
+	{
+		return m_common.min_height.value_or(0.0f);
+	}
 
 private:
 	ScrollOptions() = default;
 
-	Padding m_padding { 0.0f };
-	std::optional<float> m_width {};
-	std::optional<float> m_height {};
-	float m_flex_grow { 0.0f };
-	float m_flex_shrink { 1.0f };
-	std::optional<float> m_flex_basis {};
-	AlignSelf m_align_self { AlignSelf::Auto };
+	CommonLayoutOptionsData m_common {};
 	ScrollAxis m_axis { ScrollAxis::Vertical };
 	ScrollRevealMode m_reveal_mode { ScrollRevealMode::Minimal };
 	float m_step { 24.0f };
-	std::optional<float> m_min_width {};
-	std::optional<float> m_min_height {};
-	std::optional<float> m_max_width {};
-	std::optional<float> m_max_height {};
 
 	friend class Builder;
 };
@@ -386,7 +459,6 @@ public:
 	    std::string_view label,
 	    TextStyle style = {},
 	    FlexOptions const &options = FlexOptions::builder().build()) -> void;
-	auto memo(Id key, uint32_t deps_hash, ComposeFn const &fn) -> void;
 	auto spacer(Id key, float height) -> void;
 	auto icon(Id key, std::string_view icon_name, IconStyle style = {}) -> void;
 	auto surface(Id key,
@@ -414,11 +486,6 @@ public:
 	    FlexOptions const &options = FlexOptions::builder().build()) -> void
 	{
 		text(this->id(key), label, style, options);
-	}
-	auto memo(std::string_view key, uint32_t deps_hash, ComposeFn const &fn)
-	    -> void
-	{
-		memo(this->id(key), deps_hash, fn);
 	}
 	auto spacer(std::string_view key, float height) -> void
 	{
