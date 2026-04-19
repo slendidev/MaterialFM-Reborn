@@ -592,14 +592,6 @@ System::System()
 	m_root->scope = Scope::Root;
 	m_root->key = this->id("root");
 	m_root->local_key = this->id("root");
-	m_sidebar_tween.configure(Animation::TweenSpec {
-	    .from = 0.0f,
-	    .to = 0.0f,
-	    .duration_seconds = 0.0001f,
-	    .easing = Animation::Easing::Linear,
-	    .repeat = Animation::RepeatMode::Once,
-	});
-	m_sidebar_tween.stop();
 }
 
 auto System::set_icon_atlas(uint32_t const image_id, IconAtlas const &atlas)
@@ -1753,28 +1745,8 @@ auto System::handle_input() -> void
 
 auto System::tick_animation(float const dt) -> void
 {
-	tick_sidebar_animation(dt);
 	tick_scroll_animation(dt);
 	tick_node_animations(dt, true);
-}
-
-auto System::tick_sidebar_animation(float const dt) -> void
-{
-	auto const before { m_sidebar_progress };
-	m_sidebar_tween.tick(dt);
-	auto const new_value { m_sidebar_tween.value() };
-	if (new_value < 0.001f) {
-		m_sidebar_progress = 0.0f;
-	} else if (new_value > 0.999f) {
-		m_sidebar_progress = 1.0f;
-	} else {
-		m_sidebar_progress = new_value;
-	}
-	if (!approx_equal(m_sidebar_progress, before)) {
-		m_world_dirty = true;
-		m_visual_dirty = true;
-		mark_scope_dirty(Scope::Sidebar);
-	}
 }
 
 auto System::tick_scroll_animation(float const dt) -> void
@@ -1952,8 +1924,42 @@ auto System::tick_node_animations(float const dt, bool const advance) -> void
 				m_visual_dirty = true;
 			}
 		}
-		if (has_animated_inset(node)
-		    && inset_tween_changed(node, changed_tweens, *this)) {
+		auto const node_has_animated_inset { has_animated_inset(node) };
+		auto ensure_inset_track_initialized {
+			[&](std::optional<AnimatedScalar> const &value) -> bool {
+			    if (!value.has_value()) {
+				    return false;
+			    }
+			    auto const *ref { std::get_if<Animation::Ref>(&*value) };
+			    if (ref == nullptr) {
+				    return false;
+			    }
+			    Id resolved_key {};
+			    if (ref->key.starts_with("root/")) {
+				    resolved_key = this->id(ref->key);
+			    } else {
+				    resolved_key = tween_id(node.key, ref->key);
+			    }
+			    auto const it { m_tween_tracks.find(resolved_key) };
+			    if (it != m_tween_tracks.end() && it->second.initialized) {
+				    return false;
+			    }
+			    (void)resolve_animated_float(*ref, node.key);
+			    return true;
+			}
+		};
+		auto inset_track_bootstrapped { false };
+		if (node_has_animated_inset) {
+			inset_track_bootstrapped
+			    = ensure_inset_track_initialized(node.visual.top)
+			    || ensure_inset_track_initialized(node.visual.right)
+			    || ensure_inset_track_initialized(node.visual.bottom)
+			    || ensure_inset_track_initialized(node.visual.left);
+		}
+
+		if (node_has_animated_inset
+		    && (inset_track_bootstrapped
+		        || inset_tween_changed(node, changed_tweens, *this))) {
 			m_world_dirty = true;
 			m_render_cache_dirty = true;
 			m_visual_dirty = true;

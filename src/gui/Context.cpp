@@ -9,11 +9,36 @@ namespace Gui
 
 namespace
 {
+auto tween_spec_equal(
+    Animation::TweenSpec const &a, Animation::TweenSpec const &b) -> bool
+{
+	if (std::abs(a.from - b.from) > 0.0001f || std::abs(a.to - b.to) > 0.0001f
+	    || std::abs(a.duration_seconds - b.duration_seconds) > 0.0001f
+	    || std::abs(a.delay_seconds - b.delay_seconds) > 0.0001f
+	    || a.easing != b.easing || a.repeat != b.repeat) {
+		return false;
+	}
+
+	if (a.easing != Animation::Easing::Custom) {
+		return true;
+	}
+
+	if (static_cast<bool>(a.custom_easing)
+	    != static_cast<bool>(b.custom_easing)) {
+		return false;
+	}
+	if (!a.custom_easing && !b.custom_easing) {
+		return true;
+	}
+	return a.custom_easing.target_type() == b.custom_easing.target_type();
+}
+
 auto animation_ref_equal(Animation::Ref const &a, Animation::Ref const &b)
     -> bool
 {
 	return a.key == b.key && a.generation() == b.generation()
-	    && std::abs(a.fallback - b.fallback) <= 0.0001f;
+	    && std::abs(a.fallback - b.fallback) <= 0.0001f
+	    && tween_spec_equal(a.spec, b.spec);
 }
 
 auto animated_scalar_equal(AnimatedScalar const &a, AnimatedScalar const &b)
@@ -39,6 +64,29 @@ auto layout_value_equal(std::optional<AnimatedScalar> const &a,
 		return true;
 	}
 	return animated_scalar_equal(*a, *b);
+}
+
+auto layer_insets_affect_layout(Node const &node) -> bool
+{
+	auto const is_animated = [](std::optional<AnimatedScalar> const &value) {
+		return value.has_value()
+		    && std::holds_alternative<Animation::Ref>(*value);
+	};
+	if (is_animated(node.visual.left) && node.visual.right.has_value()) {
+		return true;
+	}
+	if (is_animated(node.visual.right)
+	    && (node.visual.left.has_value() || node.layout.fixed_width <= 0.0f)) {
+		return true;
+	}
+	if (is_animated(node.visual.top) && node.visual.bottom.has_value()) {
+		return true;
+	}
+	if (is_animated(node.visual.bottom)
+	    && (node.visual.top.has_value() || node.layout.fixed_height <= 0.0f)) {
+		return true;
+	}
+	return false;
 }
 
 auto animated_value_fallback(
@@ -282,7 +330,10 @@ auto Context::layer(Id const key,
 		m_scope = Scope::Hud;
 		break;
 	}
-	auto *node { push_node(Kind::Layer, key, m_scope, options) };
+	auto const resolved_top { resolve_animated_scalar(spec.top) };
+	auto const resolved_right { resolve_animated_scalar(spec.right) };
+	auto const resolved_bottom { resolve_animated_scalar(spec.bottom) };
+	auto const resolved_left { resolve_animated_scalar(spec.left) };
 	auto resolved_style { style };
 	if (style.animated_scrim_opacity.has_value()) {
 		resolved_style.animated_scrim_opacity
@@ -292,15 +343,36 @@ auto Context::layer(Id const key,
 		resolved_style.animated_opacity
 		    = resolve_animation_ref(*style.animated_opacity);
 	}
+	auto *node { push_node(Kind::Layer, key, m_scope, options) };
+	auto assign_layer_inset { [&](std::optional<AnimatedScalar> &field,
+		                          std::optional<AnimatedScalar> value) {
+		if (layout_value_equal(field, value)) {
+			if (value.has_value()) {
+				auto const *ref { std::get_if<Animation::Ref>(&*value) };
+				if (ref != nullptr) {
+					m_system.sample_animation_ref(*ref, node->key);
+				}
+			}
+			return;
+		}
+		field = std::move(value);
+		if (field.has_value()) {
+			auto const *ref { std::get_if<Animation::Ref>(&*field) };
+			if (ref != nullptr) {
+				m_system.sample_animation_ref(*ref, node->key);
+			}
+		}
+		if (layer_insets_affect_layout(*node)) {
+			m_system.mark_layout_dirty();
+		} else {
+			m_system.invalidate_world();
+		}
+	} };
 	assign_visual(node->visual.layer_focus_mode, spec.focus_mode, m_system);
-	assign_layout(
-	    node->visual.top, resolve_animated_scalar(spec.top), m_system);
-	assign_layout(
-	    node->visual.right, resolve_animated_scalar(spec.right), m_system);
-	assign_layout(
-	    node->visual.bottom, resolve_animated_scalar(spec.bottom), m_system);
-	assign_layout(
-	    node->visual.left, resolve_animated_scalar(spec.left), m_system);
+	assign_layer_inset(node->visual.top, resolved_top);
+	assign_layer_inset(node->visual.right, resolved_right);
+	assign_layer_inset(node->visual.bottom, resolved_bottom);
+	assign_layer_inset(node->visual.left, resolved_left);
 	assign_visual(node->visual.draw_scrim, resolved_style.draw_scrim, m_system);
 	assign_visual(
 	    node->visual.scrim_color, resolved_style.scrim_color, m_system);

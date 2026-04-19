@@ -169,14 +169,15 @@ public:
 	auto compose(std::function<void(Context &)> const &fn) -> void;
 	auto end_frame(WindowHandle handle) -> WindowFrameOutput const &;
 
-	auto invalidate_compose() -> void
+	auto invalidate_compose(Scope const scope) -> void
 	{
 		m_structure_dirty = true;
-		m_root_scope_dirty = true;
+		mark_scope_dirty(scope);
 		if (m_is_composing) {
 			m_recompose_requested_during_compose = true;
 		}
 	}
+	auto invalidate_compose() -> void { invalidate_compose(Scope::Root); }
 	auto invalidate_layout() -> void
 	{
 		m_layout_dirty = true;
@@ -475,7 +476,6 @@ private:
 	    Engine::Rect<> const clip_rect,
 	    bool overlay) -> void;
 	auto draw_debug_labels(std::vector<DrawCommand> &draw_list) -> void;
-	auto tick_sidebar_animation(float dt) -> void;
 	auto tick_scroll_animation(float dt) -> void;
 	auto tick_node_animations(float dt, bool advance) -> void;
 	auto resolve_animated_float(Animation::Ref const &ref, Id owner_key)
@@ -517,7 +517,6 @@ private:
 		.position = smath::Vec2 { 0.0f, 0.0f },
 		.size = smath::Vec2 { 0.0f, 0.0f },
 	};
-	float m_sidebar_progress {};
 	float m_confirm_hold_elapsed {};
 	bool m_confirm_hold_fired {};
 	bool m_confirm_hold_started {};
@@ -534,7 +533,6 @@ private:
 	float m_horizontal_nav_anchor_y {};
 	bool m_has_vertical_nav_anchor_x {};
 	bool m_has_horizontal_nav_anchor_y {};
-	Animation::Tween m_sidebar_tween {};
 	struct ScrollTweenState
 	{
 		Animation::Tween x {};

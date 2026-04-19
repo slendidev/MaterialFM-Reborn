@@ -24,13 +24,11 @@ struct ToastRuntime
 
 struct SidebarRuntime
 {
-	bool visible {};
 	bool last_open {};
 };
 
 struct DialogRuntime
 {
-	bool visible {};
 	bool last_open {};
 };
 
@@ -213,22 +211,24 @@ auto render_sidebar(Context &ctx,
 		ctx.remember<std::shared_ptr<SidebarRuntime>>(
 		    key_string + "/runtime", std::make_shared<SidebarRuntime>()),
 	};
+	auto const previous_open { runtime->last_open };
 	auto const open_changed { style.open != runtime->last_open };
 	if (open_changed) {
 		runtime->last_open = style.open;
-		runtime->visible = true;
 	}
 	auto const restart_animation { open_changed };
-	if (!runtime->visible && !style.open) {
-		return;
-	}
 	auto const &theme { ctx.theme() };
 	auto const scrim { style.scrim.value_or(theme.scrim) };
 	auto const fill { resolve_layer_fill(theme, style.fill, style.tonal_mix) };
+	auto const closed_left { -style.width };
+	auto const left_from { previous_open ? 0.0f : closed_left };
+	auto const left_to { style.open ? 0.0f : closed_left };
+	auto const opacity_from { previous_open ? 1.0f : 0.0f };
+	auto const opacity_to { style.open ? 1.0f : 0.0f };
 	auto left_anim {
 		Animation::Definition::builder(key_string + "/left")
-		    .from(style.open ? -style.width : 0.0f)
-		    .to(style.open ? 0.0f : -style.width)
+		    .from(left_from)
+		    .to(left_to)
 		    .duration(0.15f)
 		    .easing(Animation::Easing::EaseOutCubic)
 		    .repeat(Animation::RepeatMode::Once)
@@ -237,8 +237,8 @@ auto render_sidebar(Context &ctx,
 	auto left_ref { left_anim.get_ref() };
 	auto opacity_anim {
 		Animation::Definition::builder(key_string + "/opacity")
-		    .from(style.open ? 0.0f : 1.0f)
-		    .to(style.open ? 1.0f : 0.0f)
+		    .from(opacity_from)
+		    .to(opacity_to)
 		    .duration(0.22f)
 		    .easing(Animation::Easing::EaseOutCubic)
 		    .repeat(Animation::RepeatMode::Once)
@@ -248,17 +248,6 @@ auto render_sidebar(Context &ctx,
 	if (restart_animation) {
 		ctx.restart_animation(left_ref);
 		ctx.restart_animation(opacity_ref);
-	}
-	auto const left { std::clamp(
-		ctx.sample_animation(left_ref), -style.width, 0.0f) };
-	auto const opacity { std::clamp(
-		ctx.sample_animation(opacity_ref), 0.0f, 1.0f) };
-	if (!style.open && opacity <= 0.001f) {
-		runtime->visible = false;
-		return;
-	}
-	if ((style.open && left < -0.001f) || (!style.open && opacity > 0.001f)) {
-		ctx.request_recompose();
 	}
 
 	ctx.layer(key,
@@ -299,12 +288,9 @@ auto render_dialog(Context &ctx,
 		ctx.remember<std::shared_ptr<DialogRuntime>>(
 		    key_string + "/runtime", std::make_shared<DialogRuntime>()),
 	};
+	auto const previous_open { runtime->last_open };
 	if (style.open != runtime->last_open) {
 		runtime->last_open = style.open;
-		runtime->visible = true;
-	}
-	if (!runtime->visible && !style.open) {
-		return;
 	}
 	auto const window_rect { ctx.window_rect() };
 	auto const screen_width { window_rect.size.x() };
@@ -326,11 +312,24 @@ auto render_dialog(Context &ctx,
 	auto const &theme { ctx.theme() };
 	auto const scrim { style.scrim.value_or(theme.scrim) };
 	auto const fill { resolve_dialog_fill(theme, style.fill, style.tonal_mix) };
-	if (!style.open) {
-		runtime->visible = false;
-		return;
+	auto const opacity_from { previous_open ? 1.0f : 0.0f };
+	auto const opacity_to { style.open ? 1.0f : 0.0f };
+	auto opacity_anim {
+		Animation::Definition::builder(key_string + "/opacity")
+		    .from(opacity_from)
+		    .to(opacity_to)
+		    .duration(0.18f)
+		    .easing(Animation::Easing::EaseOutCubic)
+		    .repeat(Animation::RepeatMode::Once)
+		    .build(),
+	};
+	auto opacity_ref { opacity_anim.get_ref() };
+	if (style.open != previous_open) {
+		ctx.restart_animation(opacity_ref);
 	}
-	ctx.request_recompose();
+	auto const opacity {
+		std::clamp(ctx.sample_animation(opacity_ref), 0.0f, 1.0f),
+	};
 
 	ctx.layer(key,
 	    LayerSpec::builder()
@@ -346,10 +345,11 @@ auto render_dialog(Context &ctx,
 	        .height(screen_height)
 	        .build(),
 	    LayerStyle::builder()
-	        .draw_scrim(true)
+	        .draw_scrim(opacity > 0.001f)
 	        .scrim_color(scrim)
+	        .scrim_opacity(opacity_ref)
 	        .draw_fill(false)
-	        .opacity(1.0f)
+	        .opacity(opacity_ref)
 	        .build(),
 	    [&](Context &layer_ctx) {
 		    layer_ctx.flex(layer_ctx.id("center"),
@@ -480,8 +480,6 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 		runtime->touched_this_frame = false;
 		return Toast { runtime, key_string };
 	}
-	ctx.request_recompose();
-
 	auto const fill { style.fill.value_or(ctx.theme().inverse_surface) };
 	auto const text_color { style.text_color.value_or(
 		ctx.theme().inverse_on_surface) };

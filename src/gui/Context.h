@@ -1076,7 +1076,7 @@ public:
 	auto sample_animation(Animation::Ref const &ref) -> float;
 	auto id(std::string_view const key) -> Id { return m_system.id(key); }
 	auto new_id(std::string_view prefix = "id") -> std::string;
-	auto request_recompose() -> void { m_system.invalidate_compose(); }
+	auto request_recompose() -> void { m_system.invalidate_compose(m_scope); }
 	auto system() -> System & { return m_system; }
 	template<typename T> auto remember(std::string_view key, T init) -> T &;
 	template<typename T> auto remember(Id key, T init) -> T &;

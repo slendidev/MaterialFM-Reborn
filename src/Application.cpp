@@ -272,7 +272,7 @@ auto Application::on_update(float const dt) -> void
 						            drawer.mutable_state_of<int>("counter", 0),
 					            };
 
-					            drawer.text(drawer.new_id(),
+					            drawer.text(drawer.id("counter_value"),
 					                std::format("Count: {}", counter.get()),
 					                Gui::TextStyle::builder()
 					                    .size(14.0f)
@@ -283,7 +283,7 @@ auto Application::on_update(float const dt) -> void
 					                    .build());
 
 					            Gui::components::Button::builder(
-					                controls, controls.new_id())
+					                controls, controls.id("counter_decrement"))
 					                .label("-")
 					                .on_activate([counter]() {
 						                counter.update(
@@ -300,7 +300,7 @@ auto Application::on_update(float const dt) -> void
 					                .build();
 
 					            Gui::components::Button::builder(
-					                controls, controls.new_id())
+					                controls, controls.id("counter_increment"))
 					                .label("+")
 					                .on_activate([counter]() {
 						                counter.update(
