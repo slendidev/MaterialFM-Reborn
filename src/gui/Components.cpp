@@ -419,7 +419,8 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 	auto *system { &ctx.system() };
 	runtime->request_recompose = [system]() {
 		if (system != nullptr) {
-			system->invalidate_compose();
+			system->invalidate_compose(
+			    system->scope_for_role(ScopeRole::Passive));
 		}
 	};
 	runtime->touched_this_frame = true;

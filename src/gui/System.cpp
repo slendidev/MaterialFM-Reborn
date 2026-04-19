@@ -805,6 +805,7 @@ auto System::build_render_cache_node(
 	    .first_child = INVALID_NODE_INDEX,
 	    .next_sibling = INVALID_NODE_INDEX,
 	});
+	m_render_index_by_key[source.key] = index;
 
 	auto child_head { INVALID_NODE_INDEX };
 	auto prev_child { INVALID_NODE_INDEX };
@@ -1956,6 +1957,7 @@ auto System::tick_node_animations(float const dt, bool const advance) -> void
 			if (!approx_equal(next_opacity, node.visual.opacity)) {
 				node.visual.opacity = next_opacity;
 				m_render_cache_dirty = true;
+				m_render_subtree_dirty.insert(node.key);
 				m_visual_dirty = true;
 			}
 		}
@@ -1967,6 +1969,7 @@ auto System::tick_node_animations(float const dt, bool const advance) -> void
 			if (!approx_equal(next_opacity, node.visual.scrim_opacity)) {
 				node.visual.scrim_opacity = next_opacity;
 				m_render_cache_dirty = true;
+				m_render_subtree_dirty.insert(node.key);
 				m_visual_dirty = true;
 			}
 		}
@@ -2012,10 +2015,12 @@ auto System::tick_node_animations(float const dt, bool const advance) -> void
 			if (inset_animation_affects_layout(node)) {
 				m_layout_dirty = true;
 				m_world_subtree_dirty.clear();
+				m_render_subtree_dirty.clear();
 			} else {
 				refresh_layer_local_rect_from_insets(
 				    node, *this, m_window_rect);
 				m_world_subtree_dirty.insert(node.key);
+				m_render_subtree_dirty.insert(node.key);
 			}
 		}
 
@@ -2800,6 +2805,10 @@ auto System::update_world_node(Node &node,
 
 auto System::find_render_node_index(Id const key) const -> uint16_t
 {
+	auto const it { m_render_index_by_key.find(key) };
+	if (it != m_render_index_by_key.end()) {
+		return it->second;
+	}
 	for (uint16_t i = 0; i < m_render_nodes.size(); ++i) {
 		if (m_render_nodes[i].key == key) {
 			return i;
@@ -2851,20 +2860,30 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 		rebuilt_draw_state = true;
 	}
 	if (m_render_cache_dirty) {
-		if (!m_layout_dirty && !m_world_subtree_dirty.empty()
-		    && !m_render_nodes.empty()) {
+		auto const can_partial_update { !m_layout_dirty
+			&& (!m_world_subtree_dirty.empty()
+			    || !m_render_subtree_dirty.empty())
+			&& !m_render_nodes.empty() };
+		if (can_partial_update) {
 			for (auto const &key : m_world_subtree_dirty) {
+				if (auto *node { find_node_by_key(key) }) {
+					update_render_cache_subtree(*node);
+				}
+			}
+			for (auto const &key : m_render_subtree_dirty) {
 				if (auto *node { find_node_by_key(key) }) {
 					update_render_cache_subtree(*node);
 				}
 			}
 		} else {
 			m_render_nodes.clear();
+			m_render_index_by_key.clear();
 			m_render_nodes.reserve(NODE_POOL_MAX);
 			m_render_root_index
 			    = build_render_cache_node(*m_root, 0, INVALID_NODE_INDEX);
 		}
 		m_world_subtree_dirty.clear();
+		m_render_subtree_dirty.clear();
 		m_render_cache_dirty = false;
 		rebuilt_draw_state = true;
 	}

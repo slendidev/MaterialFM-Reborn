@@ -547,6 +547,7 @@ private:
 	bool m_confirm_hold_consumed {};
 	std::unordered_set<Id, Id::Hash> m_selected {};
 	std::unordered_set<Id, Id::Hash> m_world_subtree_dirty {};
+	std::unordered_set<Id, Id::Hash> m_render_subtree_dirty {};
 	Id m_pending_selectable_activation {};
 	std::vector<Id> m_focus_key_by_scope {};
 	float m_vertical_nav_anchor_x {};
@@ -587,6 +588,7 @@ private:
 	    m_reconcile_nodes {};
 	std::vector<std::unique_ptr<Node>> m_node_pool {};
 	std::vector<RenderNode> m_render_nodes {};
+	std::unordered_map<Id, uint16_t, Id::Hash> m_render_index_by_key {};
 	mutable std::unordered_map<Node const *, MeasureCacheEntry>
 	    m_measure_cache {};
 	std::unordered_map<Id, Node *, Id::Hash> m_nodes_by_key {};
