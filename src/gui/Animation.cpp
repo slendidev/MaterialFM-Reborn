@@ -56,12 +56,7 @@ auto Definition::builder(std::string_view const key) -> Builder
 
 auto Definition::get_ref() const -> Ref
 {
-	return Ref {
-		.key = m_key,
-		.spec = m_spec,
-		.pause_if = m_pause_if,
-		.fallback = m_fallback,
-	};
+	return Ref { m_key, m_spec, m_pause_if, m_fallback };
 }
 
 Definition::Builder::Builder(std::string_view const key)

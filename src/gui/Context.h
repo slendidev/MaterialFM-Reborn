@@ -609,6 +609,7 @@ public:
 	auto dialog_open() const -> bool;
 	auto is_visible() const -> bool;
 	auto visibility_pause_condition() const -> std::function<bool()>;
+	auto restart_animation(Animation::Ref const &ref) -> void;
 	auto sample_animation(Animation::Ref const &ref) -> float;
 	auto id(std::string_view key) -> Id;
 	auto new_id(std::string_view prefix = "id") -> std::string;
@@ -628,6 +629,10 @@ private:
 	auto push_node(Kind kind, Id key, Scope scope, FlexOptions const &options)
 	    -> Node *;
 	auto push_node(Kind kind, Id key, Scope scope) -> Node *;
+	auto resolve_animation_ref(Animation::Ref const &ref, bool restart = false)
+	    -> Animation::Ref;
+	auto resolve_animated_scalar(std::optional<AnimatedScalar> const &value)
+	    -> std::optional<AnimatedScalar>;
 	auto pop_node() -> void;
 
 	System &m_system;

@@ -1891,14 +1891,14 @@ auto System::resolve_animated_float(
 		!track.initialized || !tween_spec_equal(track.spec, ref.spec),
 	};
 	auto const generation_changed {
-		!track.has_generation || track.generation != ref.generation,
+		!track.has_generation || track.generation != ref.generation(),
 	};
 	if (spec_changed || generation_changed) {
 		track.spec = ref.spec;
 		track.tween.configure(track.spec);
 	}
 	track.pause_if = ref.pause_if;
-	track.generation = ref.generation;
+	track.generation = ref.generation();
 	track.has_generation = true;
 	track.initialized = true;
 	return track.tween.value();

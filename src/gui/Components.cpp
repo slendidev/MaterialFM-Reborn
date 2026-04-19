@@ -12,7 +12,6 @@ struct ToastRuntime
 	struct State
 	{
 		bool active {};
-		uint32_t generation {};
 		std::string message {};
 		bool pending_show {};
 		std::optional<std::string> pending_message {};
@@ -27,7 +26,6 @@ struct SidebarRuntime
 {
 	bool visible {};
 	bool last_open {};
-	uint32_t generation {};
 };
 
 struct DialogRuntime
@@ -215,11 +213,12 @@ auto render_sidebar(Context &ctx,
 		ctx.remember<std::shared_ptr<SidebarRuntime>>(
 		    key_string + "/runtime", std::make_shared<SidebarRuntime>()),
 	};
-	if (style.open != runtime->last_open) {
+	auto const open_changed { style.open != runtime->last_open };
+	if (open_changed) {
 		runtime->last_open = style.open;
-		runtime->generation += 1;
 		runtime->visible = true;
 	}
+	auto const restart_animation { open_changed };
 	if (!runtime->visible && !style.open) {
 		return;
 	}
@@ -236,7 +235,6 @@ auto render_sidebar(Context &ctx,
 		    .build(),
 	};
 	auto left_ref { left_anim.get_ref() };
-	left_ref.generation = runtime->generation;
 	auto opacity_anim {
 		Animation::Definition::builder(key_string + "/opacity")
 		    .from(style.open ? 0.0f : 1.0f)
@@ -247,7 +245,10 @@ auto render_sidebar(Context &ctx,
 		    .build(),
 	};
 	auto opacity_ref { opacity_anim.get_ref() };
-	opacity_ref.generation = runtime->generation;
+	if (restart_animation) {
+		ctx.restart_animation(left_ref);
+		ctx.restart_animation(opacity_ref);
+	}
 	auto const left { std::clamp(
 		ctx.sample_animation(left_ref), -style.width, 0.0f) };
 	auto const opacity { std::clamp(
@@ -417,7 +418,6 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 	auto const rising_edge { toast_state.pending_show };
 	if (toast_state.pending_show) {
 		toast_state.active = true;
-		toast_state.generation += 1;
 		if (toast_state.pending_message.has_value()) {
 			toast_state.message = std::move(*toast_state.pending_message);
 			toast_state.pending_message.reset();
@@ -445,7 +445,6 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 		    .build(),
 	};
 	auto progress_ref { progress_anim.get_ref() };
-	progress_ref.generation = state.generation;
 	auto opacity_anim {
 		Animation::Definition::builder(key_string + "/opacity")
 		    .from(0.0f)
@@ -468,7 +467,10 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 		    .build(),
 	};
 	auto opacity_ref { opacity_anim.get_ref() };
-	opacity_ref.generation = state.generation;
+	if (rising_edge) {
+		ctx.restart_animation(progress_ref);
+		ctx.restart_animation(opacity_ref);
+	}
 	auto const progress { std::clamp(
 		ctx.sample_animation(progress_ref), 0.0f, 1.0f) };
 	if (state.active && progress >= 0.999f && !rising_edge) {

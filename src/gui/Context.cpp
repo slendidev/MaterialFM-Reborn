@@ -12,7 +12,7 @@ namespace
 auto animation_ref_equal(Animation::Ref const &a, Animation::Ref const &b)
     -> bool
 {
-	return a.key == b.key && a.generation == b.generation
+	return a.key == b.key && a.generation() == b.generation()
 	    && std::abs(a.fallback - b.fallback) <= 0.0001f;
 }
 
@@ -989,55 +989,72 @@ auto Context::layer(Id const key,
 		break;
 	}
 	auto *node { push_node(Kind::Layer, key, m_scope, options) };
-	assign_visual(node->visual.layer_focus_mode, spec.focus_mode, m_system);
-	assign_layout(node->visual.top, spec.top, m_system);
-	assign_layout(node->visual.right, spec.right, m_system);
-	assign_layout(node->visual.bottom, spec.bottom, m_system);
-	assign_layout(node->visual.left, spec.left, m_system);
-	assign_visual(node->visual.draw_scrim, style.draw_scrim, m_system);
-	assign_visual(node->visual.scrim_color, style.scrim_color, m_system);
+	auto resolved_style { style };
 	if (style.animated_scrim_opacity.has_value()) {
+		resolved_style.animated_scrim_opacity
+		    = resolve_animation_ref(*style.animated_scrim_opacity);
+	}
+	if (style.animated_opacity.has_value()) {
+		resolved_style.animated_opacity
+		    = resolve_animation_ref(*style.animated_opacity);
+	}
+	assign_visual(node->visual.layer_focus_mode, spec.focus_mode, m_system);
+	assign_layout(
+	    node->visual.top, resolve_animated_scalar(spec.top), m_system);
+	assign_layout(
+	    node->visual.right, resolve_animated_scalar(spec.right), m_system);
+	assign_layout(
+	    node->visual.bottom, resolve_animated_scalar(spec.bottom), m_system);
+	assign_layout(
+	    node->visual.left, resolve_animated_scalar(spec.left), m_system);
+	assign_visual(node->visual.draw_scrim, resolved_style.draw_scrim, m_system);
+	assign_visual(
+	    node->visual.scrim_color, resolved_style.scrim_color, m_system);
+	if (resolved_style.animated_scrim_opacity.has_value()) {
 		auto const animated_changed {
 			!node->visual.animated_scrim_opacity.has_value()
 			    || node->visual.animated_scrim_opacity->key
-			        != style.animated_scrim_opacity->key
-			    || node->visual.animated_scrim_opacity->generation
-			        != style.animated_scrim_opacity->generation,
+			        != resolved_style.animated_scrim_opacity->key
+			    || node->visual.animated_scrim_opacity->generation()
+			        != resolved_style.animated_scrim_opacity->generation(),
 		};
 		if (animated_changed) {
-			assign_visual(
-			    node->visual.scrim_opacity, style.scrim_opacity, m_system);
+			assign_visual(node->visual.scrim_opacity,
+			    resolved_style.scrim_opacity,
+			    m_system);
 		}
-		node->visual.animated_scrim_opacity = style.animated_scrim_opacity;
+		node->visual.animated_scrim_opacity
+		    = resolved_style.animated_scrim_opacity;
 	} else {
 		if (node->visual.animated_scrim_opacity.has_value()) {
 			node->visual.animated_scrim_opacity.reset();
 			m_system.mark_visual_dirty();
 		}
 		assign_visual(
-		    node->visual.scrim_opacity, style.scrim_opacity, m_system);
+		    node->visual.scrim_opacity, resolved_style.scrim_opacity, m_system);
 	}
-	assign_visual(node->visual.draw_fill, style.draw_fill, m_system);
-	assign_visual(node->visual.corner_radius, style.radius, m_system);
-	assign_visual(node->visual.fill_color, style.fill_color, m_system);
-	if (style.animated_opacity.has_value()) {
+	assign_visual(node->visual.draw_fill, resolved_style.draw_fill, m_system);
+	assign_visual(node->visual.corner_radius, resolved_style.radius, m_system);
+	assign_visual(node->visual.fill_color, resolved_style.fill_color, m_system);
+	if (resolved_style.animated_opacity.has_value()) {
 		auto const animated_changed {
 			!node->visual.animated_opacity.has_value()
 			    || node->visual.animated_opacity->key
-			        != style.animated_opacity->key
-			    || node->visual.animated_opacity->generation
-			        != style.animated_opacity->generation,
+			        != resolved_style.animated_opacity->key
+			    || node->visual.animated_opacity->generation()
+			        != resolved_style.animated_opacity->generation(),
 		};
 		if (animated_changed) {
-			assign_visual(node->visual.opacity, style.opacity, m_system);
+			assign_visual(
+			    node->visual.opacity, resolved_style.opacity, m_system);
 		}
-		node->visual.animated_opacity = style.animated_opacity;
+		node->visual.animated_opacity = resolved_style.animated_opacity;
 	} else {
 		if (node->visual.animated_opacity.has_value()) {
 			node->visual.animated_opacity.reset();
 			m_system.mark_visual_dirty();
 		}
-		assign_visual(node->visual.opacity, style.opacity, m_system);
+		assign_visual(node->visual.opacity, resolved_style.opacity, m_system);
 	}
 	fn(*this);
 	pop_node();
@@ -1123,12 +1140,55 @@ auto Context::visibility_pause_condition() const -> std::function<bool()>
 	};
 }
 
+auto Context::resolve_animation_ref(
+    Animation::Ref const &ref, bool const restart) -> Animation::Ref
+{
+	auto resolved { ref };
+	if (m_current == nullptr) {
+		return resolved;
+	}
+	if (!resolved.valid()) {
+		return resolved;
+	}
+
+	auto const state_local_key {
+		m_system.id(std::string("@anim/") + resolved.key),
+	};
+	auto const state_key { m_system.state_id(m_current->key, state_local_key) };
+	auto &generation { remember<uint32_t>(state_key, 0u) };
+	if (restart) {
+		generation += 1;
+	}
+
+	resolved.set_generation(generation);
+	return resolved;
+}
+
+auto Context::resolve_animated_scalar(
+    std::optional<AnimatedScalar> const &value) -> std::optional<AnimatedScalar>
+{
+	if (!value.has_value()) {
+		return std::nullopt;
+	}
+	auto const *ref { std::get_if<Animation::Ref>(&*value) };
+	if (ref == nullptr) {
+		return value;
+	}
+	return resolve_animation_ref(*ref);
+}
+
+auto Context::restart_animation(Animation::Ref const &ref) -> void
+{
+	(void)resolve_animation_ref(ref, true);
+}
+
 auto Context::sample_animation(Animation::Ref const &ref) -> float
 {
 	if (m_current == nullptr) {
 		return ref.fallback;
 	}
-	return m_system.sample_animation_ref(ref, m_current->key);
+	auto const resolved { resolve_animation_ref(ref) };
+	return m_system.sample_animation_ref(resolved, m_current->key);
 }
 
 auto Context::id(std::string_view const key) -> Id

@@ -4,6 +4,12 @@
 #include <functional>
 #include <string>
 #include <string_view>
+#include <utility>
+
+namespace Gui
+{
+class Context;
+}
 
 namespace Gui::Animation
 {
@@ -45,9 +51,27 @@ struct Ref
 	TweenSpec spec {};
 	std::function<bool()> pause_if {};
 	float fallback {};
-	uint32_t generation {};
+
+	Ref() = default;
+	Ref(std::string key,
+	    TweenSpec spec,
+	    std::function<bool()> pause_if,
+	    float fallback)
+	    : key(std::move(key)), spec(std::move(spec)),
+	      pause_if(std::move(pause_if)), fallback(fallback)
+	{ }
 
 	auto valid() const -> bool { return !key.empty(); }
+	auto generation() const -> uint32_t { return m_generation; }
+
+private:
+	auto set_generation(uint32_t const generation) -> void
+	{
+		m_generation = generation;
+	}
+
+	friend class Gui::Context;
+	uint32_t m_generation {};
 };
 
 class Definition
