@@ -61,6 +61,151 @@ auto tween_spec_equal(
 	return a.custom_easing.target_type() == b.custom_easing.target_type();
 }
 
+auto resolve_animated_scalar(std::optional<AnimatedScalar> const &value,
+    System &system,
+    Id const owner_key) -> std::optional<float>
+{
+	if (!value.has_value()) {
+		return std::nullopt;
+	}
+	if (auto const *static_value { std::get_if<float>(&*value) }) {
+		return *static_value;
+	}
+	return system.sample_animation_ref(
+	    std::get<Animation::Ref>(*value), owner_key);
+}
+
+auto inset_animation_affects_layout(Node const &node) -> bool
+{
+	auto const is_animated = [](std::optional<AnimatedScalar> const &value) {
+		return value.has_value()
+		    && std::holds_alternative<Animation::Ref>(*value);
+	};
+	if (is_animated(node.visual.left) && node.visual.right.has_value()) {
+		return true;
+	}
+	if (is_animated(node.visual.right)
+	    && (node.visual.left.has_value() || node.layout.fixed_width <= 0.0f)) {
+		return true;
+	}
+	if (is_animated(node.visual.top) && node.visual.bottom.has_value()) {
+		return true;
+	}
+	if (is_animated(node.visual.bottom)
+	    && (node.visual.top.has_value() || node.layout.fixed_height <= 0.0f)) {
+		return true;
+	}
+	return false;
+}
+
+auto has_animated_inset(Node const &node) -> bool
+{
+	auto const is_animated = [](std::optional<AnimatedScalar> const &value) {
+		return value.has_value()
+		    && std::holds_alternative<Animation::Ref>(*value);
+	};
+	return is_animated(node.visual.top) || is_animated(node.visual.right)
+	    || is_animated(node.visual.bottom) || is_animated(node.visual.left);
+}
+
+auto refresh_layer_local_rect_from_insets(
+    Node &node, System &system, Engine::Rect<> const &window_rect) -> void
+{
+	if (node.kind != Kind::Layer) {
+		return;
+	}
+
+	auto const top { resolve_animated_scalar(
+		node.visual.top, system, node.key) };
+	auto const right {
+		resolve_animated_scalar(node.visual.right, system, node.key),
+	};
+	auto const bottom {
+		resolve_animated_scalar(node.visual.bottom, system, node.key),
+	};
+	auto const left {
+		resolve_animated_scalar(node.visual.left, system, node.key),
+	};
+	auto const container_width { window_rect.size.x() };
+	auto const container_height { window_rect.size.y() };
+
+	float rect_width {
+		node.layout.fixed_width > 0.0f ? node.layout.fixed_width
+		                               : container_width,
+	};
+	float rect_height { node.layout.fixed_height > 0.0f
+		    ? node.layout.fixed_height
+		    : container_height };
+	float rect_x {};
+	float rect_y {};
+
+	if (left.has_value()) {
+		rect_x = *left;
+	}
+	if (top.has_value()) {
+		rect_y = *top;
+	}
+	if (left.has_value() && right.has_value()) {
+		rect_width = std::max(0.0f, container_width - *left - *right);
+	} else if (right.has_value()) {
+		if (rect_width <= 0.0f) {
+			rect_width = std::max(0.0f, container_width - *right);
+		} else {
+			rect_x = std::max(0.0f, container_width - *right - rect_width);
+		}
+	}
+	if (top.has_value() && bottom.has_value()) {
+		rect_height = std::max(0.0f, container_height - *top - *bottom);
+	} else if (bottom.has_value()) {
+		if (rect_height <= 0.0f) {
+			rect_height = std::max(0.0f, container_height - *bottom);
+		} else {
+			rect_y = std::max(0.0f, container_height - *bottom - rect_height);
+		}
+	}
+	if (!left.has_value() && !right.has_value() && rect_width <= 0.0f) {
+		rect_width = container_width;
+	}
+	if (!top.has_value() && !bottom.has_value() && rect_height <= 0.0f) {
+		rect_height = container_height;
+	}
+
+	node.layout.local_rect.position = smath::Vec2 { rect_x, rect_y };
+	node.layout.local_rect.size = smath::Vec2 { rect_width, rect_height };
+}
+
+auto resolve_tween_track_key(
+    Animation::Ref const &ref, System &system, Id const owner_key) -> Id
+{
+	if (!ref.valid()) {
+		return {};
+	}
+	if (ref.key.starts_with("root/")) {
+		return system.id(ref.key);
+	}
+	return system.tween_id(owner_key, ref.key);
+}
+
+auto inset_tween_changed(Node const &node,
+    std::unordered_set<Id, Id::Hash> const &changed_tweens,
+    System &system) -> bool
+{
+	auto const ref_changed = [&](std::optional<AnimatedScalar> const &value) {
+		if (!value.has_value()) {
+			return false;
+		}
+		auto const *ref { std::get_if<Animation::Ref>(&*value) };
+		if (ref == nullptr) {
+			return false;
+		}
+		auto const key { resolve_tween_track_key(*ref, system, node.key) };
+		return key.valid() && changed_tweens.contains(key);
+	};
+
+	return ref_changed(node.visual.top) || ref_changed(node.visual.right)
+	    || ref_changed(node.visual.bottom) || ref_changed(node.visual.left);
+}
+
 auto resolve_align_items(AlignItems const container_align, AlignSelf const self)
     -> AlignItems
 {
@@ -271,7 +416,6 @@ auto System::begin_compose_tracking() -> void
 	m_structure_changed_during_compose = false;
 	m_layout_changed_during_compose = false;
 	m_visual_changed_during_compose = false;
-	m_toast_touched.clear();
 }
 
 auto System::end_compose_tracking() -> void
@@ -378,6 +522,8 @@ auto System::measure_node(Node const &node, float const available_width) const
 	case Kind::Icon:
 	case Kind::Spacer:
 		return store_measure(measure_leaf(node));
+	case Kind::OverlayHost:
+		return store_measure(MeasuredSize {});
 
 	case Kind::Scrollable:
 	case Kind::Flex:
@@ -454,34 +600,6 @@ System::System()
 	    .repeat = Animation::RepeatMode::Once,
 	});
 	m_sidebar_tween.stop();
-}
-
-auto System::set_sidebar_open(bool const open) -> void
-{
-	if (m_sidebar_open == open) {
-		return;
-	}
-	auto const target { open ? 1.0f : 0.0f };
-	m_sidebar_tween.configure(Animation::TweenSpec {
-	    .from = m_sidebar_progress,
-	    .to = target,
-	    .duration_seconds = 0.22f,
-	    .easing = Animation::Easing::EaseOutCubic,
-	    .repeat = Animation::RepeatMode::Once,
-	});
-	m_sidebar_open = open;
-	m_structure_dirty = true;
-	mark_scope_dirty(Scope::Sidebar);
-}
-
-auto System::set_dialog_open(bool const open) -> void
-{
-	if (m_dialog_open == open) {
-		return;
-	}
-	m_dialog_open = open;
-	m_structure_dirty = true;
-	mark_scope_dirty(Scope::Dialog);
 }
 
 auto System::set_hud_visible(bool const visible) -> void
@@ -629,7 +747,12 @@ auto System::build_render_cache_node(
 	    .draw_fill = source.visual.draw_fill,
 	    .draw_outline = source.visual.draw_outline,
 	    .draw_scrim = source.visual.draw_scrim,
-	    .layer_presentation = source.visual.layer_presentation,
+	    .scrim_opacity = source.visual.scrim_opacity,
+	    .layer_focus_mode = source.visual.layer_focus_mode,
+	    .top = source.visual.top,
+	    .right = source.visual.right,
+	    .bottom = source.visual.bottom,
+	    .left = source.visual.left,
 	    .fill_color = source.visual.fill_color,
 	    .focus_fill_color = source.visual.focus_fill_color,
 	    .selected_fill_color = source.visual.selected_fill_color,
@@ -766,21 +889,6 @@ auto System::prune_state_store() -> void
 		}
 		++it;
 	}
-
-	for (auto it { m_toast_states.begin() }; it != m_toast_states.end();) {
-		auto const &key { it->first };
-		auto const &toast { it->second };
-		auto const keep_touched { m_toast_touched.contains(key) };
-		auto const keep_pending {
-			toast.active || toast.pending_show
-			    || toast.pending_message.has_value(),
-		};
-		if (!keep_touched && !keep_pending) {
-			it = m_toast_states.erase(it);
-			continue;
-		}
-		++it;
-	}
 }
 
 auto System::reconcile_node(Node *const parent,
@@ -910,12 +1018,18 @@ auto System::reconcile_node(Node *const parent,
 		node->visual.draw_fill = false;
 		node->visual.draw_outline = false;
 		node->visual.draw_scrim = false;
+		node->visual.scrim_opacity = 1.0f;
+		node->visual.animated_scrim_opacity.reset();
 		node->visual.corner_radius = 0.0f;
 		node->visual.outline_thickness = 1.0f;
 		node->content.icon_size = 24.0f;
 		node->visual.opacity = 1.0f;
 		node->visual.animated_opacity.reset();
-		node->visual.layer_presentation = LayerPresentation::Drawer;
+		node->visual.layer_focus_mode = LayerFocusMode::Overlay;
+		node->visual.top.reset();
+		node->visual.right.reset();
+		node->visual.bottom.reset();
+		node->visual.left.reset();
 		node->visual.fill_color.reset();
 		node->visual.focus_fill_color.reset();
 		node->visual.selected_fill_color.reset();
@@ -984,12 +1098,36 @@ auto System::rebuild_node_index() -> void
 	}
 }
 
+auto System::scope_present(Scope const scope) const -> bool
+{
+	if (m_root == nullptr) {
+		return false;
+	}
+
+	std::vector<Node const *> stack;
+	stack.push_back(m_root.get());
+	while (!stack.empty()) {
+		auto const *node { stack.back() };
+		stack.pop_back();
+		if (node == nullptr) {
+			continue;
+		}
+		if (node->scope == scope) {
+			return true;
+		}
+		for (auto const &child : node->children) {
+			stack.push_back(child.get());
+		}
+	}
+	return false;
+}
+
 auto System::active_scope() const -> Scope
 {
-	if (m_dialog_open) {
+	if (scope_present(Scope::Dialog)) {
 		return Scope::Dialog;
 	}
-	if (m_sidebar_open) {
+	if (scope_present(Scope::Sidebar)) {
 		return Scope::Sidebar;
 	}
 	return Scope::Root;
@@ -1242,29 +1380,12 @@ auto System::handle_input() -> void
 		m_visual_dirty = true;
 	}
 
-	if (m_input.menu_pressed && !m_dialog_open) {
-		set_sidebar_open(!m_sidebar_open);
-	}
-
-	if (m_input.actions_pressed && !m_dialog_open && !m_sidebar_open) {
-		set_dialog_open(true);
-		m_pending_selectable_activation = Id {};
-	}
-
 	if (m_input.back_pressed) {
 		if (m_selection_mode) {
 			m_selection_mode = false;
 			m_selected.clear();
 			m_visual_dirty = true;
 			m_pending_selectable_activation = Id {};
-			return;
-		}
-		if (m_dialog_open) {
-			set_dialog_open(false);
-			return;
-		}
-		if (m_sidebar_open) {
-			set_sidebar_open(false);
 			return;
 		}
 	}
@@ -1785,7 +1906,9 @@ auto System::resolve_animated_float(
 
 auto System::tick_node_animations(float const dt, bool const advance) -> void
 {
+	std::unordered_set<Id, Id::Hash> changed_tweens {};
 	for (auto &pair : m_tween_tracks) {
+		auto const key { pair.first };
 		auto &track { pair.second };
 		if (!track.initialized) {
 			continue;
@@ -1794,6 +1917,7 @@ auto System::tick_node_animations(float const dt, bool const advance) -> void
 		track.tween.set_paused(paused);
 		if (advance) {
 			if (track.tween.tick(dt)) {
+				changed_tweens.insert(key);
 				m_visual_dirty = true;
 			}
 		}
@@ -1834,6 +1958,31 @@ auto System::tick_node_animations(float const dt, bool const advance) -> void
 				node.visual.opacity = next_opacity;
 				m_render_cache_dirty = true;
 				m_visual_dirty = true;
+			}
+		}
+		if (node.visual.animated_scrim_opacity.has_value()) {
+			auto const next_opacity {
+				resolve_animated_float(
+				    *node.visual.animated_scrim_opacity, node.key),
+			};
+			if (!approx_equal(next_opacity, node.visual.scrim_opacity)) {
+				node.visual.scrim_opacity = next_opacity;
+				m_render_cache_dirty = true;
+				m_visual_dirty = true;
+			}
+		}
+		if (has_animated_inset(node)
+		    && inset_tween_changed(node, changed_tweens, *this)) {
+			m_world_dirty = true;
+			m_render_cache_dirty = true;
+			m_visual_dirty = true;
+			if (inset_animation_affects_layout(node)) {
+				m_layout_dirty = true;
+				m_world_subtree_dirty.clear();
+			} else {
+				refresh_layer_local_rect_from_insets(
+				    node, *this, m_window_rect);
+				m_world_subtree_dirty.insert(node.key);
 			}
 		}
 
@@ -1921,6 +2070,8 @@ auto System::layout_node(Node &node,
 		return layout_icon();
 	case Kind::Spacer:
 		return layout_spacer();
+	case Kind::OverlayHost:
+		break;
 	case Kind::Scrollable:
 	case Kind::Flex:
 	case Kind::Surface:
@@ -1948,31 +2099,68 @@ auto System::layout_node(Node &node,
 	float rect_height { node.layout.fixed_height > 0.0f
 		    ? node.layout.fixed_height
 		    : height_constraint };
+	float rect_x { x };
+	float rect_y { y };
 
 	if (node.kind == Kind::Layer) {
-		if (node.visual.layer_presentation == LayerPresentation::Drawer) {
-			rect_width = node.layout.fixed_width > 0.0f
-			    ? node.layout.fixed_width
-			    : DEFAULT_DRAWER_WIDTH;
-			rect_height = m_window_rect.size.y();
-		} else if (node.visual.layer_presentation == LayerPresentation::Modal) {
-			rect_width = node.layout.fixed_width > 0.0f
-			    ? node.layout.fixed_width
-			    : DEFAULT_MODAL_WIDTH;
-			rect_height = node.layout.fixed_height > 0.0f
-			    ? node.layout.fixed_height
-			    : DEFAULT_MODAL_HEIGHT;
-		} else {
-			rect_width = m_window_rect.size.x();
-			rect_height = m_window_rect.size.y();
+		auto const top { resolve_animated_scalar(
+			node.visual.top, *this, node.key) };
+		auto const right { resolve_animated_scalar(
+			node.visual.right, *this, node.key) };
+		auto const bottom { resolve_animated_scalar(
+			node.visual.bottom, *this, node.key) };
+		auto const left { resolve_animated_scalar(
+			node.visual.left, *this, node.key) };
+		auto const container_width { m_window_rect.size.x() };
+		auto const container_height { m_window_rect.size.y() };
+		rect_width = node.layout.fixed_width > 0.0f ? node.layout.fixed_width
+		                                            : rect_width;
+		rect_height = node.layout.fixed_height > 0.0f ? node.layout.fixed_height
+		                                              : rect_height;
+		if (left.has_value()) {
+			rect_x = *left;
 		}
+		if (top.has_value()) {
+			rect_y = *top;
+		}
+		if (left.has_value() && right.has_value()) {
+			rect_width = std::max(0.0f, container_width - *left - *right);
+		} else if (right.has_value()) {
+			if (rect_width <= 0.0f) {
+				rect_width = std::max(0.0f, container_width - *right);
+			} else {
+				rect_x = std::max(0.0f, container_width - *right - rect_width);
+			}
+		}
+		if (top.has_value() && bottom.has_value()) {
+			rect_height = std::max(0.0f, container_height - *top - *bottom);
+		} else if (bottom.has_value()) {
+			if (rect_height <= 0.0f) {
+				rect_height = std::max(0.0f, container_height - *bottom);
+			} else {
+				rect_y
+				    = std::max(0.0f, container_height - *bottom - rect_height);
+			}
+		}
+		if (!left.has_value() && !right.has_value() && rect_width <= 0.0f) {
+			rect_width = container_width;
+		}
+		if (!top.has_value() && !bottom.has_value() && rect_height <= 0.0f) {
+			rect_height = container_height;
+		}
+	} else if (node.kind == Kind::OverlayHost) {
+		rect_width
+		    = node.layout.fixed_width > 0.0f ? node.layout.fixed_width : width;
+		rect_height = node.layout.fixed_height > 0.0f
+		    ? node.layout.fixed_height
+		    : std::max(height_constraint, m_window_rect.size.y());
 	} else {
 		if (node.layout.fixed_width > 0.0f) {
 			rect_width = node.layout.fixed_width;
 		}
 	}
 
-	node.layout.local_rect.position = smath::Vec2 { x, y };
+	node.layout.local_rect.position = smath::Vec2 { rect_x, rect_y };
 
 	float inner_width {
 		std::max(0.0f,
@@ -2523,19 +2711,36 @@ auto System::update_world_tree() -> void
 	    0.0f);
 }
 
+auto System::update_world_subtree(Node &node) -> void
+{
+	if (node.parent == nullptr) {
+		update_world_node(node,
+		    m_window_rect.position.x(),
+		    m_window_rect.position.y(),
+		    0.0f,
+		    0.0f);
+		return;
+	}
+	auto *parent { node.parent };
+	float parent_scroll_x { 0.0f };
+	float parent_scroll_y { 0.0f };
+	if (parent->kind == Kind::Scrollable) {
+		parent_scroll_x = parent->scroll.scroll_x;
+		parent_scroll_y = parent->scroll.scroll_y;
+	}
+	update_world_node(node,
+	    parent->layout.world_rect.position.x(),
+	    parent->layout.world_rect.position.y(),
+	    parent_scroll_x,
+	    parent_scroll_y);
+}
+
 auto System::update_world_node(Node &node,
     float const parent_world_x,
     float const parent_world_y,
     float const parent_scroll_x,
     float const parent_scroll_y) -> void
 {
-	if (node.kind == Kind::Layer
-	    && node.visual.layer_presentation == LayerPresentation::Drawer) {
-		node.layout.translation.x()
-		    = -(1.0f - m_sidebar_progress) * node.layout.local_rect.size.x();
-		node.layout.translation.y() = 0.0f;
-	}
-
 	node.layout.world_rect.position = smath::Vec2 {
 		parent_world_x + node.layout.local_rect.position.x() - parent_scroll_x
 		    + node.layout.translation.x(),
@@ -2560,6 +2765,31 @@ auto System::update_world_node(Node &node,
 	}
 }
 
+auto System::find_render_node_index(Id const key) const -> uint16_t
+{
+	for (uint16_t i = 0; i < m_render_nodes.size(); ++i) {
+		if (m_render_nodes[i].key == key) {
+			return i;
+		}
+	}
+	return INVALID_NODE_INDEX;
+}
+
+auto System::update_render_cache_subtree(Node const &node) -> void
+{
+	auto const index { find_render_node_index(node.key) };
+	if (index == INVALID_NODE_INDEX || index >= m_render_nodes.size()) {
+		return;
+	}
+	auto &render_node { m_render_nodes[index] };
+	render_node.rect = node.layout.world_rect;
+	render_node.opacity = node.visual.opacity;
+	render_node.scrim_opacity = node.visual.scrim_opacity;
+	for (auto const &child : node.children) {
+		update_render_cache_subtree(*child);
+	}
+}
+
 auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 {
 	if (handle.id != m_current_window.id) {
@@ -2573,17 +2803,35 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 		rebuilt_draw_state = true;
 	}
 	if (m_world_dirty) {
-		update_world_tree();
+		if (!m_layout_dirty && !m_world_subtree_dirty.empty()) {
+			for (auto const &key : m_world_subtree_dirty) {
+				if (auto *node { find_node_by_key(key) }) {
+					update_world_subtree(*node);
+				}
+			}
+		} else {
+			update_world_tree();
+		}
 		sync_focus();
 		m_world_dirty = false;
 		m_render_cache_dirty = true;
 		rebuilt_draw_state = true;
 	}
 	if (m_render_cache_dirty) {
-		m_render_nodes.clear();
-		m_render_nodes.reserve(NODE_POOL_MAX);
-		m_render_root_index
-		    = build_render_cache_node(*m_root, 0, INVALID_NODE_INDEX);
+		if (!m_layout_dirty && !m_world_subtree_dirty.empty()
+		    && !m_render_nodes.empty()) {
+			for (auto const &key : m_world_subtree_dirty) {
+				if (auto *node { find_node_by_key(key) }) {
+					update_render_cache_subtree(*node);
+				}
+			}
+		} else {
+			m_render_nodes.clear();
+			m_render_nodes.reserve(NODE_POOL_MAX);
+			m_render_root_index
+			    = build_render_cache_node(*m_root, 0, INVALID_NODE_INDEX);
+		}
+		m_world_subtree_dirty.clear();
 		m_render_cache_dirty = false;
 		rebuilt_draw_state = true;
 	}
@@ -2622,7 +2870,7 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 				auto const &child { m_render_nodes[child_index] };
 				auto const is_hud_layer {
 					child.kind == Kind::Layer
-					    && child.layer_presentation == LayerPresentation::Hud,
+					    && child.layer_focus_mode == LayerFocusMode::Passive,
 				};
 				if (is_hud_layer == hud_only) {
 					render_node(m_last_output.draw_list,

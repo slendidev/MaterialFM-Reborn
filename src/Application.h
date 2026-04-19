@@ -25,6 +25,8 @@ private:
 	bool m_has_icon_atlas {};
 	bool m_icon_atlas_bound {};
 	uint8_t m_gui_hud_visible { 0 };
+	bool m_sidebar_open {};
+	bool m_dialog_open {};
 	Engine::FontHandle m_gui_measure_font_handle {};
 	Engine::FontHandle m_notosansjp_font {};
 	static constexpr size_t FRAME_TIME_HISTORY_CAPACITY { 60 };

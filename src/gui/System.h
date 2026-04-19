@@ -155,15 +155,6 @@ public:
 		float height {};
 	};
 
-	struct ToastState
-	{
-		bool active {};
-		uint32_t generation {};
-		std::string message {};
-		bool pending_show {};
-		std::optional<std::string> pending_message {};
-	};
-
 	System();
 
 	auto id(std::string_view value) const -> Id;
@@ -203,15 +194,13 @@ public:
 		m_visual_dirty = true;
 	}
 	auto invalidate_visual() -> void { m_visual_dirty = true; }
-	auto sidebar_open() const -> bool { return m_sidebar_open; }
-	auto dialog_open() const -> bool { return m_dialog_open; }
+	auto sidebar_open() const -> bool { return scope_present(Scope::Sidebar); }
+	auto dialog_open() const -> bool { return scope_present(Scope::Dialog); }
 	auto sidebar_visible() const -> bool
 	{
-		return m_sidebar_open || m_sidebar_progress > 0.01f;
+		return scope_present(Scope::Sidebar);
 	}
 	auto selection_mode() const -> bool { return m_selection_mode; }
-	auto set_sidebar_open(bool open) -> void;
-	auto set_dialog_open(bool open) -> void;
 	auto set_hud_visible(bool visible) -> void;
 	auto get_hud_visible() const -> bool { return m_hud_visible; }
 	auto selected(Id key) const -> bool;
@@ -221,24 +210,6 @@ public:
 	auto set_text_measure_fn(
 	    std::function<smath::Vec2(std::string_view, float)> fn) -> void;
 	auto sample_animation_ref(Animation::Ref const &ref, Id owner_key) -> float;
-	auto toast_state(std::string_view key) -> ToastState &
-	{
-		m_toast_touched.insert(std::string(key));
-		auto const [it, _] {
-			m_toast_states.try_emplace(std::string(key), ToastState {}),
-		};
-		return it->second;
-	}
-	auto show_toast(std::string_view key,
-	    std::optional<std::string> message = std::nullopt) -> void
-	{
-		auto &toast { toast_state(key) };
-		toast.pending_show = true;
-		if (message.has_value()) {
-			toast.pending_message = std::move(message);
-		}
-		invalidate_compose();
-	}
 	template<typename T> auto remember_state(Id const key, T init) -> T &
 	{
 		m_state_touched.insert(key);
@@ -360,7 +331,12 @@ private:
 		bool draw_fill {};
 		bool draw_outline {};
 		bool draw_scrim {};
-		LayerPresentation layer_presentation { LayerPresentation::Drawer };
+		float scrim_opacity { 1.0f };
+		LayerFocusMode layer_focus_mode { LayerFocusMode::Overlay };
+		std::optional<AnimatedScalar> top {};
+		std::optional<AnimatedScalar> right {};
+		std::optional<AnimatedScalar> bottom {};
+		std::optional<AnimatedScalar> left {};
 		std::optional<smath::Vec4> fill_color {};
 		std::optional<smath::Vec4> focus_fill_color {};
 		std::optional<smath::Vec4> selected_fill_color {};
@@ -385,6 +361,7 @@ private:
 	};
 
 	auto rebuild_node_index() -> void;
+	auto scope_present(Scope scope) const -> bool;
 	auto active_scope() const -> Scope;
 	auto collect_reconcile_nodes(std::unique_ptr<Node> node) -> void;
 	auto stash_orphan(std::unique_ptr<Node> node) -> void;
@@ -405,11 +382,14 @@ private:
 	    float width,
 	    float height_constraint = 0.0f) -> float;
 	auto update_world_tree() -> void;
+	auto update_world_subtree(Node &node) -> void;
 	auto update_world_node(Node &node,
 	    float parent_world_x,
 	    float parent_world_y,
 	    float parent_scroll_x,
 	    float parent_scroll_y) -> void;
+	auto update_render_cache_subtree(Node const &node) -> void;
+	auto find_render_node_index(Id key) const -> uint16_t;
 	auto measure_node(Node const &node, float available_width = 0.0f) const
 	    -> MeasuredSize;
 	auto measure_leaf(Node const &node) const -> MeasuredSize;
@@ -511,8 +491,6 @@ private:
 	bool m_root_scope_dirty { true };
 	bool m_sidebar_scope_dirty { true };
 	bool m_dialog_scope_dirty { true };
-	bool m_sidebar_open {};
-	bool m_dialog_open {};
 	bool m_selection_mode {};
 	bool m_hud_visible { true };
 	bool m_debug_bounds {};
@@ -534,6 +512,7 @@ private:
 	bool m_prev_confirm_down {};
 	bool m_confirm_hold_consumed {};
 	std::unordered_set<Id, Id::Hash> m_selected {};
+	std::unordered_set<Id, Id::Hash> m_world_subtree_dirty {};
 	Id m_pending_selectable_activation {};
 	Id m_root_focus_key {};
 	Id m_sidebar_focus_key {};
@@ -564,8 +543,6 @@ private:
 	};
 	std::unordered_map<Id, TweenTrack, Id::Hash> m_tween_tracks {};
 	std::unordered_map<Id, std::any, Id::Hash> m_state_store {};
-	std::unordered_map<std::string, ToastState> m_toast_states {};
-	std::unordered_set<std::string> m_toast_touched {};
 	std::unordered_set<Id, Id::Hash> m_state_touched {};
 	std::function<smath::Vec2(std::string_view, float)> m_text_measure_fn {};
 	uint32_t m_icon_image_id {};

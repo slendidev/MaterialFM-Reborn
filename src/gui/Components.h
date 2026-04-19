@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -12,6 +13,8 @@
 
 namespace Gui::components
 {
+
+struct ToastRuntime;
 
 struct ButtonStyle
 {
@@ -69,6 +72,8 @@ private:
 
 struct DialogStyle
 {
+	std::string host_key { "overlay_host" };
+	bool open {};
 	float max_width_ratio { 0.80f };
 	float max_height_ratio { 0.85f };
 	float corner_radius { 10.0f };
@@ -79,6 +84,8 @@ struct DialogStyle
 
 struct SidebarStyle
 {
+	std::string host_key { "overlay_host" };
+	bool open {};
 	float width { 186.0f };
 	float corner_radius {};
 	float tonal_mix { 0.10f };
@@ -88,6 +95,7 @@ struct SidebarStyle
 
 struct ToastStyle
 {
+	std::string host_key { "notifications_host" };
 	float width { 220.0f };
 	float min_height { 40.0f };
 	float corner_radius { 10.0f };
@@ -149,6 +157,7 @@ class Sidebar::Builder
 public:
 	Builder(Context &ctx, Id key);
 
+	auto open(bool value) -> Builder &;
 	auto options(FlexOptions value) -> Builder &;
 	auto style(SidebarStyle value) -> Builder &;
 	auto content(Context::ComposeFn fn) -> Builder &;
@@ -176,6 +185,7 @@ class Dialog::Builder
 public:
 	Builder(Context &ctx, Id key);
 
+	auto open(bool value) -> Builder &;
 	auto options(FlexOptions value) -> Builder &;
 	auto style(DialogStyle value) -> Builder &;
 	auto content(Context::ComposeFn fn) -> Builder &;
@@ -194,14 +204,14 @@ class Toast
 public:
 	class Builder;
 
-	Toast(System *system, std::string key);
+	Toast(std::shared_ptr<ToastRuntime> runtime, std::string key);
 	static auto builder(Context &ctx, Id key) -> Builder;
 	static auto builder(Context &ctx, std::string_view key) -> Builder;
 	auto show() const -> void;
 	auto show(std::string_view message) const -> void;
 
 private:
-	System *m_system {};
+	std::shared_ptr<ToastRuntime> m_runtime {};
 	std::string m_key {};
 };
 

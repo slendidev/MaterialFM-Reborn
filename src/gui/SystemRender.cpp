@@ -180,16 +180,9 @@ auto System::try_make_render_state(System::RenderNode const &node,
 		return false;
 	}
 
-	auto const scope_is_active { [&]() {
-		auto const node_scope { node.scope };
-		if (m_dialog_open) {
-			return scope_accepts_focus(node_scope, Scope::Dialog);
-		}
-		if (m_sidebar_open) {
-			return scope_accepts_focus(node_scope, Scope::Sidebar);
-		}
-		return scope_accepts_focus(node_scope, Scope::Root);
-	}() };
+	auto const scope_is_active {
+		scope_accepts_focus(node.scope, active_scope()),
+	};
 	out.visible_rect = *visible_rect;
 	out.opacity = std::clamp(parent_opacity * node.opacity, 0.0f, 1.0f);
 	out.focused_here
@@ -526,16 +519,9 @@ auto System::emit_node_self_into_passes(PassBuckets &passes,
 
 	m_stats.rendered_nodes += 1;
 
-	auto const scope_is_active { [&]() {
-		auto const node_scope { node.scope };
-		if (m_dialog_open) {
-			return scope_accepts_focus(node_scope, Scope::Dialog);
-		}
-		if (m_sidebar_open) {
-			return scope_accepts_focus(node_scope, Scope::Sidebar);
-		}
-		return scope_accepts_focus(node_scope, Scope::Root);
-	}() };
+	auto const scope_is_active {
+		scope_accepts_focus(node.scope, active_scope()),
+	};
 	auto const focused_here {
 		scope_is_active && focused_key.valid() && focused_key == node.key,
 	};
@@ -681,10 +667,7 @@ auto System::emit_node_self_into_passes(PassBuckets &passes,
 			auto scrim {
 				choose_color(node.scrim_color, m_theme.scrim),
 			};
-			if (node.layer_presentation == LayerPresentation::Drawer) {
-				scrim = color_with_alpha(scrim, m_sidebar_progress * scrim.w());
-			}
-			scrim = color_with_alpha(scrim, scrim.w() * opacity);
+			scrim = color_with_alpha(scrim, scrim.w() * node.scrim_opacity);
 			passes.shapes.push_back(DrawCommand { .payload = DrawCommand::Rect {
 			                                          .rect = m_window_rect,
 			                                          .color = scrim,

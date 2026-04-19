@@ -377,6 +377,8 @@ struct LayerStyle
 
 	bool draw_scrim { true };
 	std::optional<smath::Vec4> scrim_color {};
+	float scrim_opacity { 1.0f };
+	std::optional<Animation::Ref> animated_scrim_opacity {};
 	bool draw_fill { true };
 	float radius {};
 	std::optional<smath::Vec4> fill_color {};
@@ -389,6 +391,8 @@ class LayerStyle::Builder
 public:
 	auto draw_scrim(bool value) -> Builder &;
 	auto scrim_color(smath::Vec4 value) -> Builder &;
+	auto scrim_opacity(float value) -> Builder &;
+	auto scrim_opacity(Animation::Ref value) -> Builder &;
 	auto draw_fill(bool value) -> Builder &;
 	auto radius(float value) -> Builder &;
 	auto fill_color(smath::Vec4 value) -> Builder &;
@@ -398,6 +402,61 @@ public:
 
 private:
 	LayerStyle m_style {};
+};
+
+struct OverlayHostSpec
+{
+	class Builder;
+	static auto builder() -> Builder;
+
+	bool clip_to_bounds {};
+	int z_index {};
+};
+
+class OverlayHostSpec::Builder
+{
+public:
+	auto clip_to_bounds(bool value) -> Builder &;
+	auto z_index(int value) -> Builder &;
+	auto build() const -> OverlayHostSpec;
+
+private:
+	OverlayHostSpec m_spec {};
+};
+
+struct LayerSpec
+{
+	class Builder;
+	static auto builder() -> Builder;
+
+	LayerFocusMode focus_mode { LayerFocusMode::Overlay };
+	std::optional<AnimatedScalar> top {};
+	std::optional<AnimatedScalar> right {};
+	std::optional<AnimatedScalar> bottom {};
+	std::optional<AnimatedScalar> left {};
+	int z_index {};
+};
+
+class LayerSpec::Builder
+{
+public:
+	auto focus_mode(LayerFocusMode value) -> Builder &;
+	auto z_index(int value) -> Builder &;
+	auto overlay() -> Builder &;
+	auto exclusive() -> Builder &;
+	auto passive() -> Builder &;
+	auto top(float value) -> Builder &;
+	auto top(Animation::Ref value) -> Builder &;
+	auto right(float value) -> Builder &;
+	auto right(Animation::Ref value) -> Builder &;
+	auto bottom(float value) -> Builder &;
+	auto bottom(Animation::Ref value) -> Builder &;
+	auto left(float value) -> Builder &;
+	auto left(Animation::Ref value) -> Builder &;
+	auto build() const -> LayerSpec;
+
+private:
+	LayerSpec m_spec {};
 };
 
 template<typename T> class MutableState
@@ -470,8 +529,12 @@ public:
 	    std::function<void()> on_activate,
 	    bool selectable,
 	    ComposeFn const &fn) -> void;
+	auto overlay_host(Id key,
+	    FlexOptions const &options,
+	    OverlayHostSpec const &spec,
+	    ComposeFn const &fn) -> void;
 	auto layer(Id key,
-	    LayerPresentation presentation,
+	    LayerSpec const &spec,
 	    FlexOptions const &options,
 	    LayerStyle style,
 	    ComposeFn const &fn) -> void;
@@ -513,13 +576,20 @@ public:
 		pressable(
 		    this->id(key), options, std::move(on_activate), selectable, fn);
 	}
+	auto overlay_host(std::string_view key,
+	    FlexOptions const &options,
+	    OverlayHostSpec const &spec,
+	    ComposeFn const &fn) -> void
+	{
+		overlay_host(this->id(key), options, spec, fn);
+	}
 	auto layer(std::string_view key,
-	    LayerPresentation presentation,
+	    LayerSpec const &spec,
 	    FlexOptions const &options,
 	    LayerStyle style,
 	    ComposeFn const &fn) -> void
 	{
-		layer(this->id(key), presentation, options, style, fn);
+		layer(this->id(key), spec, options, style, fn);
 	}
 	auto flex(
 	    std::string_view key, FlexOptions const &options, ComposeFn const &fn)

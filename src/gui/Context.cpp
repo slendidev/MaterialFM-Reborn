@@ -9,6 +9,38 @@ namespace Gui
 
 namespace
 {
+auto animation_ref_equal(Animation::Ref const &a, Animation::Ref const &b)
+    -> bool
+{
+	return a.key == b.key && a.generation == b.generation
+	    && std::abs(a.fallback - b.fallback) <= 0.0001f;
+}
+
+auto animated_scalar_equal(AnimatedScalar const &a, AnimatedScalar const &b)
+    -> bool
+{
+	if (a.index() != b.index()) {
+		return false;
+	}
+	if (auto const *lhs { std::get_if<float>(&a) }) {
+		return std::abs(*lhs - std::get<float>(b)) <= 0.0001f;
+	}
+	return animation_ref_equal(
+	    std::get<Animation::Ref>(a), std::get<Animation::Ref>(b));
+}
+
+auto layout_value_equal(std::optional<AnimatedScalar> const &a,
+    std::optional<AnimatedScalar> const &b) -> bool
+{
+	if (a.has_value() != b.has_value()) {
+		return false;
+	}
+	if (!a.has_value()) {
+		return true;
+	}
+	return animated_scalar_equal(*a, *b);
+}
+
 auto animated_value_fallback(
     std::optional<FlexOptions::AnimatedFloat> const &value) -> float
 {
@@ -24,9 +56,13 @@ auto animated_value_fallback(
 template<typename T>
 auto assign_layout(T &field, T value, System &system) -> void
 {
-	if constexpr (requires(T const &a, T const &b) {
-		              { a == b } -> std::convertible_to<bool>;
-	              }) {
+	if constexpr (std::is_same_v<T, std::optional<AnimatedScalar>>) {
+		if (layout_value_equal(field, value)) {
+			return;
+		}
+	} else if constexpr (requires(T const &a, T const &b) {
+		                     { a == b } -> std::convertible_to<bool>;
+	                     }) {
 		if (field == value) {
 			return;
 		}
@@ -315,6 +351,113 @@ auto FlexOptions::Builder::build() const -> FlexOptions
 auto ScrollOptions::builder() -> Builder
 {
 	return Builder {};
+}
+
+auto OverlayHostSpec::builder() -> Builder
+{
+	return Builder {};
+}
+
+auto OverlayHostSpec::Builder::clip_to_bounds(bool const value) -> Builder &
+{
+	m_spec.clip_to_bounds = value;
+	return *this;
+}
+
+auto OverlayHostSpec::Builder::z_index(int const value) -> Builder &
+{
+	m_spec.z_index = value;
+	return *this;
+}
+
+auto OverlayHostSpec::Builder::build() const -> OverlayHostSpec
+{
+	return m_spec;
+}
+
+auto LayerSpec::builder() -> Builder
+{
+	return Builder {};
+}
+
+auto LayerSpec::Builder::focus_mode(LayerFocusMode const value) -> Builder &
+{
+	m_spec.focus_mode = value;
+	return *this;
+}
+
+auto LayerSpec::Builder::z_index(int const value) -> Builder &
+{
+	m_spec.z_index = value;
+	return *this;
+}
+
+auto LayerSpec::Builder::overlay() -> Builder &
+{
+	return focus_mode(LayerFocusMode::Overlay);
+}
+
+auto LayerSpec::Builder::exclusive() -> Builder &
+{
+	return focus_mode(LayerFocusMode::Exclusive);
+}
+
+auto LayerSpec::Builder::passive() -> Builder &
+{
+	return focus_mode(LayerFocusMode::Passive);
+}
+
+auto LayerSpec::Builder::top(float const value) -> Builder &
+{
+	m_spec.top = value;
+	return *this;
+}
+
+auto LayerSpec::Builder::top(Animation::Ref value) -> Builder &
+{
+	m_spec.top = std::move(value);
+	return *this;
+}
+
+auto LayerSpec::Builder::right(float const value) -> Builder &
+{
+	m_spec.right = value;
+	return *this;
+}
+
+auto LayerSpec::Builder::right(Animation::Ref value) -> Builder &
+{
+	m_spec.right = std::move(value);
+	return *this;
+}
+
+auto LayerSpec::Builder::bottom(float const value) -> Builder &
+{
+	m_spec.bottom = value;
+	return *this;
+}
+
+auto LayerSpec::Builder::bottom(Animation::Ref value) -> Builder &
+{
+	m_spec.bottom = std::move(value);
+	return *this;
+}
+
+auto LayerSpec::Builder::left(float const value) -> Builder &
+{
+	m_spec.left = value;
+	return *this;
+}
+
+auto LayerSpec::Builder::left(Animation::Ref value) -> Builder &
+{
+	m_spec.left = std::move(value);
+	return *this;
+}
+
+auto LayerSpec::Builder::build() const -> LayerSpec
+{
+	return m_spec;
 }
 
 auto ScrollOptions::Builder::axis(ScrollAxis const value) -> Builder &
@@ -662,6 +805,20 @@ auto LayerStyle::Builder::scrim_color(smath::Vec4 const value) -> Builder &
 	return *this;
 }
 
+auto LayerStyle::Builder::scrim_opacity(float const value) -> Builder &
+{
+	m_style.scrim_opacity = value;
+	m_style.animated_scrim_opacity.reset();
+	return *this;
+}
+
+auto LayerStyle::Builder::scrim_opacity(Animation::Ref value) -> Builder &
+{
+	m_style.scrim_opacity = value.fallback;
+	m_style.animated_scrim_opacity = std::move(value);
+	return *this;
+}
+
 auto LayerStyle::Builder::draw_fill(bool const value) -> Builder &
 {
 	m_style.draw_fill = value;
@@ -800,28 +957,66 @@ auto Context::pressable(Id const key,
 	pop_node();
 }
 
+auto Context::overlay_host(Id const key,
+    FlexOptions const &options,
+    OverlayHostSpec const &spec,
+    ComposeFn const &fn) -> void
+{
+	(void)key;
+	(void)options;
+	(void)spec;
+	fn(*this);
+}
+
 auto Context::layer(Id const key,
-    LayerPresentation const presentation,
+    LayerSpec const &spec,
     FlexOptions const &options,
     LayerStyle const style,
     ComposeFn const &fn) -> void
 {
 	auto const previous_scope { m_scope };
-	switch (presentation) {
-	case LayerPresentation::Drawer:
+	switch (spec.focus_mode) {
+	case LayerFocusMode::Inherit:
+		break;
+	case LayerFocusMode::Overlay:
 		m_scope = Scope::Sidebar;
 		break;
-	case LayerPresentation::Modal:
+	case LayerFocusMode::Exclusive:
 		m_scope = Scope::Dialog;
 		break;
-	case LayerPresentation::Hud:
+	case LayerFocusMode::Passive:
 		m_scope = Scope::Hud;
 		break;
 	}
 	auto *node { push_node(Kind::Layer, key, m_scope, options) };
-	assign_visual(node->visual.layer_presentation, presentation, m_system);
+	assign_visual(node->visual.layer_focus_mode, spec.focus_mode, m_system);
+	assign_layout(node->visual.top, spec.top, m_system);
+	assign_layout(node->visual.right, spec.right, m_system);
+	assign_layout(node->visual.bottom, spec.bottom, m_system);
+	assign_layout(node->visual.left, spec.left, m_system);
 	assign_visual(node->visual.draw_scrim, style.draw_scrim, m_system);
 	assign_visual(node->visual.scrim_color, style.scrim_color, m_system);
+	if (style.animated_scrim_opacity.has_value()) {
+		auto const animated_changed {
+			!node->visual.animated_scrim_opacity.has_value()
+			    || node->visual.animated_scrim_opacity->key
+			        != style.animated_scrim_opacity->key
+			    || node->visual.animated_scrim_opacity->generation
+			        != style.animated_scrim_opacity->generation,
+		};
+		if (animated_changed) {
+			assign_visual(
+			    node->visual.scrim_opacity, style.scrim_opacity, m_system);
+		}
+		node->visual.animated_scrim_opacity = style.animated_scrim_opacity;
+	} else {
+		if (node->visual.animated_scrim_opacity.has_value()) {
+			node->visual.animated_scrim_opacity.reset();
+			m_system.mark_visual_dirty();
+		}
+		assign_visual(
+		    node->visual.scrim_opacity, style.scrim_opacity, m_system);
+	}
 	assign_visual(node->visual.draw_fill, style.draw_fill, m_system);
 	assign_visual(node->visual.corner_radius, style.radius, m_system);
 	assign_visual(node->visual.fill_color, style.fill_color, m_system);

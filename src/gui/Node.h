@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "engine/Math.h"
@@ -12,6 +13,8 @@
 
 namespace Gui
 {
+
+using AnimatedScalar = std::variant<float, Animation::Ref>;
 
 enum class Scope
 {
@@ -24,6 +27,7 @@ enum class Scope
 enum class Kind
 {
 	Root,
+	OverlayHost,
 	Flex,
 	Scrollable,
 	Text,
@@ -34,11 +38,20 @@ enum class Kind
 	Spacer,
 };
 
-enum class LayerPresentation
+enum class LayerFocusMode
 {
-	Drawer,
-	Modal,
-	Hud,
+	Inherit,
+	Overlay,
+	Exclusive,
+	Passive,
+};
+
+enum class LayerPlacement
+{
+	Flow,
+	WindowLeft,
+	WindowCenter,
+	WindowFill,
 };
 
 enum class FlexDirection
@@ -191,9 +204,15 @@ struct Node
 		bool draw_scrim {};
 		float corner_radius {};
 		float outline_thickness { 1.0f };
+		float scrim_opacity { 1.0f };
+		std::optional<Animation::Ref> animated_scrim_opacity {};
 		float opacity { 1.0f };
 		std::optional<Animation::Ref> animated_opacity {};
-		LayerPresentation layer_presentation { LayerPresentation::Drawer };
+		LayerFocusMode layer_focus_mode { LayerFocusMode::Overlay };
+		std::optional<AnimatedScalar> top {};
+		std::optional<AnimatedScalar> right {};
+		std::optional<AnimatedScalar> bottom {};
+		std::optional<AnimatedScalar> left {};
 		std::optional<smath::Vec4> fill_color {};
 		std::optional<smath::Vec4> focus_fill_color {};
 		std::optional<smath::Vec4> selected_fill_color {};

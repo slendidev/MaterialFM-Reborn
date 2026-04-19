@@ -7,6 +7,36 @@
 namespace Gui::components
 {
 
+struct ToastRuntime
+{
+	struct State
+	{
+		bool active {};
+		uint32_t generation {};
+		std::string message {};
+		bool pending_show {};
+		std::optional<std::string> pending_message {};
+	};
+
+	State state {};
+	std::function<void()> request_recompose {};
+	bool touched_this_frame {};
+};
+
+struct SidebarRuntime
+{
+	bool visible {};
+	bool last_open {};
+	uint32_t generation {};
+};
+
+struct DialogRuntime
+{
+	bool visible {};
+	bool last_open {};
+	uint32_t generation {};
+};
+
 namespace
 {
 struct ResolvedButtonStyle
@@ -129,21 +159,6 @@ auto build_button_label_style(
 	    .build();
 }
 
-auto build_layer_style(bool const draw_scrim,
-    smath::Vec4 const scrim,
-    bool const draw_fill,
-    float const radius,
-    smath::Vec4 const fill) -> LayerStyle
-{
-	return LayerStyle::builder()
-	    .draw_scrim(draw_scrim)
-	    .scrim_color(scrim)
-	    .draw_fill(draw_fill)
-	    .radius(radius)
-	    .fill_color(fill)
-	    .build();
-}
-
 auto render_button(Context &ctx,
     Id const key,
     std::string_view const label,
@@ -196,17 +211,74 @@ auto render_sidebar(Context &ctx,
     Context::ComposeFn const &fn,
     SidebarStyle const &style) -> void
 {
-	if (!ctx.sidebar_visible()) {
+	auto const key_string { key_string_from_id(key) };
+	auto &runtime {
+		ctx.remember<std::shared_ptr<SidebarRuntime>>(
+		    key_string + "/runtime", std::make_shared<SidebarRuntime>()),
+	};
+	if (style.open != runtime->last_open) {
+		runtime->last_open = style.open;
+		runtime->generation += 1;
+		runtime->visible = true;
+	}
+	if (!runtime->visible && !style.open) {
 		return;
 	}
 	auto const &theme { ctx.theme() };
 	auto const scrim { style.scrim.value_or(theme.scrim) };
 	auto const fill { resolve_layer_fill(theme, style.fill, style.tonal_mix) };
+	auto left_anim {
+		Animation::Definition::builder(key_string + "/left")
+		    .from(style.open ? -style.width : 0.0f)
+		    .to(style.open ? 0.0f : -style.width)
+		    .duration(0.22f)
+		    .easing(Animation::Easing::EaseOutCubic)
+		    .repeat(Animation::RepeatMode::Once)
+		    .build(),
+	};
+	auto left_ref { left_anim.get_ref() };
+	left_ref.generation = runtime->generation;
+	auto opacity_anim {
+		Animation::Definition::builder(key_string + "/opacity")
+		    .from(style.open ? 0.0f : 1.0f)
+		    .to(style.open ? 1.0f : 0.0f)
+		    .duration(0.22f)
+		    .easing(Animation::Easing::EaseOutCubic)
+		    .repeat(Animation::RepeatMode::Once)
+		    .build(),
+	};
+	auto opacity_ref { opacity_anim.get_ref() };
+	opacity_ref.generation = runtime->generation;
+	auto const left { std::clamp(
+		ctx.sample_animation(left_ref), -style.width, 0.0f) };
+	auto const opacity { std::clamp(
+		ctx.sample_animation(opacity_ref), 0.0f, 1.0f) };
+	if (!style.open && opacity <= 0.001f) {
+		runtime->visible = false;
+		return;
+	}
+	if ((style.open && left < -0.001f) || (!style.open && opacity > 0.001f)) {
+		ctx.request_recompose();
+	}
 
 	ctx.layer(key,
-	    LayerPresentation::Drawer,
+	    LayerSpec::builder()
+	        .focus_mode(
+	            style.open ? LayerFocusMode::Overlay : LayerFocusMode::Passive)
+	        .top(0.0f)
+	        .bottom(0.0f)
+	        .left(left_ref)
+	        .build(),
 	    FlexOptions::builder().width(style.width).build(),
-	    build_layer_style(true, scrim, true, style.corner_radius, fill),
+	    LayerStyle::builder()
+	        .draw_scrim(true)
+	        .scrim_color(scrim)
+	        .scrim_opacity(opacity_ref)
+	        .draw_fill(true)
+	        .radius(style.corner_radius)
+	        .fill_color(fill)
+	        .opacity(1.0f)
+	        .build(),
 	    [&](Context &layer_ctx) {
 		    layer_ctx.scrollable(layer_ctx.id("drawer_scrollable"),
 		        Gui::ScrollOptions::builder().build(),
@@ -222,7 +294,17 @@ auto render_dialog(Context &ctx,
     Context::ComposeFn const &fn,
     DialogStyle const &style) -> void
 {
-	if (!ctx.dialog_open()) {
+	auto const key_string { key_string_from_id(key) };
+	auto &runtime {
+		ctx.remember<std::shared_ptr<DialogRuntime>>(
+		    key_string + "/runtime", std::make_shared<DialogRuntime>()),
+	};
+	if (style.open != runtime->last_open) {
+		runtime->last_open = style.open;
+		runtime->generation += 1;
+		runtime->visible = true;
+	}
+	if (!runtime->visible && !style.open) {
 		return;
 	}
 	auto const window_rect { ctx.window_rect() };
@@ -245,9 +327,34 @@ auto render_dialog(Context &ctx,
 	auto const &theme { ctx.theme() };
 	auto const scrim { style.scrim.value_or(theme.scrim) };
 	auto const fill { resolve_dialog_fill(theme, style.fill, style.tonal_mix) };
+	auto opacity_anim {
+		Animation::Definition::builder(key_string + "/opacity")
+		    .from(style.open ? 0.0f : 1.0f)
+		    .to(style.open ? 1.0f : 0.0f)
+		    .duration(0.18f)
+		    .easing(Animation::Easing::EaseOutCubic)
+		    .repeat(Animation::RepeatMode::Once)
+		    .build(),
+	};
+	auto opacity_ref { opacity_anim.get_ref() };
+	opacity_ref.generation = runtime->generation;
+	auto const opacity { std::clamp(
+		ctx.sample_animation(opacity_ref), 0.0f, 1.0f) };
+	if (!style.open && opacity <= 0.001f) {
+		runtime->visible = false;
+		return;
+	}
+	ctx.request_recompose();
 
 	ctx.layer(key,
-	    LayerPresentation::Modal,
+	    LayerSpec::builder()
+	        .focus_mode(style.open ? LayerFocusMode::Exclusive
+	                               : LayerFocusMode::Passive)
+	        .top(0.0f)
+	        .right(0.0f)
+	        .bottom(0.0f)
+	        .left(0.0f)
+	        .build(),
 	    FlexOptions::builder()
 	        .width(screen_width)
 	        .height(screen_height)
@@ -255,7 +362,9 @@ auto render_dialog(Context &ctx,
 	    LayerStyle::builder()
 	        .draw_scrim(true)
 	        .scrim_color(scrim)
+	        .scrim_opacity(opacity_ref)
 	        .draw_fill(false)
+	        .opacity(1.0f)
 	        .build(),
 	    [&](Context &layer_ctx) {
 		    layer_ctx.flex(layer_ctx.id("center"),
@@ -309,7 +418,18 @@ auto render_dialog(Context &ctx,
 auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 {
 	auto const key_string { key_string_from_id(key) };
-	auto &toast_state { ctx.system().toast_state(key_string) };
+	auto &runtime {
+		ctx.remember<std::shared_ptr<ToastRuntime>>(
+		    key_string + "/runtime", std::make_shared<ToastRuntime>()),
+	};
+	auto *system { &ctx.system() };
+	runtime->request_recompose = [system]() {
+		if (system != nullptr) {
+			system->invalidate_compose();
+		}
+	};
+	runtime->touched_this_frame = true;
+	auto &toast_state { runtime->state };
 	auto const rising_edge { toast_state.pending_show };
 	if (toast_state.pending_show) {
 		toast_state.active = true;
@@ -322,7 +442,8 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 	}
 	auto const &state { toast_state };
 	if (state.message.empty() && !state.active) {
-		return Toast { &ctx.system(), key_string };
+		runtime->touched_this_frame = false;
+		return Toast { runtime, key_string };
 	}
 
 	auto const fade_in { std::max(0.001f, style.fade_in_s) };
@@ -370,7 +491,8 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 		toast_state.active = false;
 	}
 	if (!toast_state.active && progress >= 0.999f) {
-		return Toast { &ctx.system(), key_string };
+		runtime->touched_this_frame = false;
+		return Toast { runtime, key_string };
 	}
 	ctx.request_recompose();
 
@@ -380,7 +502,13 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 
 	auto const window_rect { ctx.window_rect() };
 	ctx.layer(key,
-	    LayerPresentation::Hud,
+	    LayerSpec::builder()
+	        .passive()
+	        .top(0.0f)
+	        .right(0.0f)
+	        .bottom(0.0f)
+	        .left(0.0f)
+	        .build(),
 	    FlexOptions::builder()
 	        .width(window_rect.size.x())
 	        .height(window_rect.size.y())
@@ -446,7 +574,8 @@ auto render_toast(Context &ctx, Id const key, ToastStyle const &style) -> Toast
 		        });
 	    });
 
-	return Toast { &ctx.system(), key_string };
+	runtime->touched_this_frame = false;
+	return Toast { runtime, key_string };
 }
 } // namespace
 
@@ -574,6 +703,12 @@ auto Sidebar::builder(Context &ctx, std::string_view const key)
 Sidebar::Builder::Builder(Context &ctx, Id const key) : m_ctx(ctx), m_key(key)
 { }
 
+auto Sidebar::Builder::open(bool const value) -> Builder &
+{
+	m_style.open = value;
+	return *this;
+}
+
 auto Sidebar::Builder::options(FlexOptions const value) -> Builder &
 {
 	m_options = value;
@@ -611,6 +746,12 @@ auto Dialog::builder(Context &ctx, std::string_view const key)
 Dialog::Builder::Builder(Context &ctx, Id const key)
     : m_ctx(ctx), m_key(key) { }
 
+auto Dialog::Builder::open(bool const value) -> Builder &
+{
+	m_style.open = value;
+	return *this;
+}
+
 auto Dialog::Builder::options(FlexOptions const value) -> Builder &
 {
 	m_options = value;
@@ -634,8 +775,8 @@ auto Dialog::Builder::build() -> void
 	render_dialog(m_ctx, m_key, m_options, m_content, m_style);
 }
 
-Toast::Toast(System *const system, std::string key)
-    : m_system(system), m_key(std::move(key))
+Toast::Toast(std::shared_ptr<ToastRuntime> runtime, std::string key)
+    : m_runtime(std::move(runtime)), m_key(std::move(key))
 { }
 
 auto Toast::builder(Context &ctx, Id const key) -> Toast::Builder
@@ -663,18 +804,25 @@ auto Toast::Builder::build() -> Toast
 
 auto Toast::show() const -> void
 {
-	if (m_system == nullptr) {
+	if (!m_runtime) {
 		return;
 	}
-	m_system->show_toast(m_key);
+	m_runtime->state.pending_show = true;
+	if (m_runtime->request_recompose) {
+		m_runtime->request_recompose();
+	}
 }
 
 auto Toast::show(std::string_view const message) const -> void
 {
-	if (m_system == nullptr) {
+	if (!m_runtime) {
 		return;
 	}
-	m_system->show_toast(m_key, std::string(message));
+	m_runtime->state.pending_message = std::string(message);
+	m_runtime->state.pending_show = true;
+	if (m_runtime->request_recompose) {
+		m_runtime->request_recompose();
+	}
 }
 
 } // namespace Gui::components
