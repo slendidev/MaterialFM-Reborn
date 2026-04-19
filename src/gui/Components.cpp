@@ -34,7 +34,6 @@ struct DialogRuntime
 {
 	bool visible {};
 	bool last_open {};
-	uint32_t generation {};
 };
 
 namespace
@@ -231,7 +230,7 @@ auto render_sidebar(Context &ctx,
 		Animation::Definition::builder(key_string + "/left")
 		    .from(style.open ? -style.width : 0.0f)
 		    .to(style.open ? 0.0f : -style.width)
-		    .duration(0.22f)
+		    .duration(0.15f)
 		    .easing(Animation::Easing::EaseOutCubic)
 		    .repeat(Animation::RepeatMode::Once)
 		    .build(),
@@ -301,7 +300,6 @@ auto render_dialog(Context &ctx,
 	};
 	if (style.open != runtime->last_open) {
 		runtime->last_open = style.open;
-		runtime->generation += 1;
 		runtime->visible = true;
 	}
 	if (!runtime->visible && !style.open) {
@@ -327,20 +325,7 @@ auto render_dialog(Context &ctx,
 	auto const &theme { ctx.theme() };
 	auto const scrim { style.scrim.value_or(theme.scrim) };
 	auto const fill { resolve_dialog_fill(theme, style.fill, style.tonal_mix) };
-	auto opacity_anim {
-		Animation::Definition::builder(key_string + "/opacity")
-		    .from(style.open ? 0.0f : 1.0f)
-		    .to(style.open ? 1.0f : 0.0f)
-		    .duration(0.18f)
-		    .easing(Animation::Easing::EaseOutCubic)
-		    .repeat(Animation::RepeatMode::Once)
-		    .build(),
-	};
-	auto opacity_ref { opacity_anim.get_ref() };
-	opacity_ref.generation = runtime->generation;
-	auto const opacity { std::clamp(
-		ctx.sample_animation(opacity_ref), 0.0f, 1.0f) };
-	if (!style.open && opacity <= 0.001f) {
+	if (!style.open) {
 		runtime->visible = false;
 		return;
 	}
@@ -362,7 +347,6 @@ auto render_dialog(Context &ctx,
 	    LayerStyle::builder()
 	        .draw_scrim(true)
 	        .scrim_color(scrim)
-	        .scrim_opacity(opacity_ref)
 	        .draw_fill(false)
 	        .opacity(1.0f)
 	        .build(),
