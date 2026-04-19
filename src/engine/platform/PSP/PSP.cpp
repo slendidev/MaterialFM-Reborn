@@ -2163,6 +2163,11 @@ auto AssetManager::texture(std::string_view const name) const -> Texture const *
 	return texture(texture_handle(name));
 }
 
+auto AssetManager::texture_mut(std::string_view const name) -> Texture *
+{
+	return texture_mut(texture_handle(name));
+}
+
 auto AssetManager::sound(std::string_view const name) const -> Sound const *
 {
 	return sound(sound_handle(name));
@@ -2179,6 +2184,14 @@ auto AssetManager::font(std::string_view const name) const -> Font const *
 }
 
 auto AssetManager::texture(TextureHandle const handle) const -> Texture const *
+{
+	if (handle.id == 0xFFFFFFFFu || handle.id >= m_impl->texture_slots.size()) {
+		return nullptr;
+	}
+	return m_impl->texture_slots[handle.id].asset;
+}
+
+auto AssetManager::texture_mut(TextureHandle const handle) -> Texture *
 {
 	if (handle.id == 0xFFFFFFFFu || handle.id >= m_impl->texture_slots.size()) {
 		return nullptr;

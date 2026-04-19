@@ -3,32 +3,33 @@ atlas_width=192
 atlas_height=96
 cell=24
 columns=8
-count=26
+count=27
 
 # name x y w h
-album 0 0 24 24
-archive 24 0 24 24
-batt0 48 0 24 24
-batt1 72 0 24 24
-batt2 96 0 24 24
-batt3 120 0 24 24
-batt4 144 0 24 24
-batt5 168 0 24 24
-batt6 0 24 24 24
-batt_bolt 24 24 24 24
-batt_full 48 24 24 24
-box 72 24 24 24
-cloud 96 24 24 24
-data 120 24 24 24
-folder 144 24 24 24
-folder_info 168 24 24 24
-mem 0 48 24 24
-menu 24 48 24 24
-new_folder 48 48 24 24
-new_folder_alt 72 48 24 24
-rocket 96 48 24 24
-sd 120 48 24 24
-search 144 48 24 24
-settings 168 48 24 24
-unarchive 0 72 24 24
-usb 24 72 24 24
+blank 0 0 24 24
+album 24 0 24 24
+archive 48 0 24 24
+batt0 72 0 24 24
+batt1 96 0 24 24
+batt2 120 0 24 24
+batt3 144 0 24 24
+batt4 168 0 24 24
+batt5 0 24 24 24
+batt6 24 24 24 24
+batt_bolt 48 24 24 24
+batt_full 72 24 24 24
+box 96 24 24 24
+cloud 120 24 24 24
+data 144 24 24 24
+folder 168 24 24 24
+folder_info 0 48 24 24
+mem 24 48 24 24
+menu 48 48 24 24
+new_folder 72 48 24 24
+new_folder_alt 96 48 24 24
+rocket 120 48 24 24
+sd 144 48 24 24
+search 168 48 24 24
+settings 0 72 24 24
+unarchive 24 72 24 24
+usb 48 72 24 24

@@ -47,6 +47,11 @@ if ! command -v magick >/dev/null 2>&1; then
 	exit 1
 fi
 
+if ! command -v oxipng >/dev/null 2>&1; then
+	echo "missing 'oxipng'." >&2
+	exit 1
+fi
+
 atlas_name="$(basename "$OUT_PNG")"
 
 files=()
@@ -59,12 +64,10 @@ for path in "$ICON_DIR"/*.png; do
 	files+=("$path")
 done
 
-if [ "${#files[@]}" -eq 0 ]; then
-	echo "No PNG files found in: $ICON_DIR" >&2
-	exit 1
-fi
-
 mapfile -t files < <(printf '%s\n' "${files[@]}" | sort)
+
+# Add a blank white icon in the first atlas cell.
+files=("__BLANK__" "${files[@]}")
 
 count="${#files[@]}"
 rows=$(( (count + COLS - 1) / COLS ))
@@ -79,13 +82,23 @@ magick -size "${atlas_width}x${atlas_height}" xc:none "$OUT_PNG"
 for i in "${!files[@]}"; do
 	x=$(( (i % COLS) * CELL ))
 	y=$(( (i / COLS) * CELL ))
-	magick "$OUT_PNG" \( "${files[$i]}" \
-		-resize "${CELL}x${CELL}" \
-		-background none \
-	\) -gravity northwest \
-		-geometry "+${x}+${y}" \
-		-composite \
-		"$OUT_PNG"
+
+	if [ "${files[$i]}" = "__BLANK__" ]; then
+		magick "$OUT_PNG" \( \
+			-size "${CELL}x${CELL}" xc:white \
+		\) -gravity northwest \
+			-geometry "+${x}+${y}" \
+			-composite \
+			"$OUT_PNG"
+	else
+		magick "$OUT_PNG" \( "${files[$i]}" \
+			-resize "${CELL}x${CELL}" \
+			-background none \
+		\) -gravity northwest \
+			-geometry "+${x}+${y}" \
+			-composite \
+			"$OUT_PNG"
+	fi
 done
 
 orig_alpha="$(mktemp "${OUT_PNG}.origalpha.XXXXXX.png")"
@@ -127,12 +140,25 @@ rm -f "$orig_alpha" "$new_alpha"
 	echo
 	echo "# name x y w h"
 	for i in "${!files[@]}"; do
-		name="$(basename "${files[$i]}" .png)"
 		x=$(( (i % COLS) * CELL ))
 		y=$(( (i / COLS) * CELL ))
-		echo "$name $x $y $CELL $CELL"
+
+		if [ "${files[$i]}" = "__BLANK__" ]; then
+			echo "blank $x $y $CELL $CELL"
+		else
+			name="$(basename "${files[$i]}" .png)"
+			echo "$name $x $y $CELL $CELL"
+		fi
 	done
 } > "$OUT_META"
+
+
+magick "$OUT_PNG" \( \
+	-size "${CELL}x${CELL}" xc:white \
+\) -gravity northwest \
+	-geometry "+0+0" \
+	-composite \
+	"$OUT_PNG"
 
 oxipng -o max -i 0 --strip all "$OUT_PNG"
 

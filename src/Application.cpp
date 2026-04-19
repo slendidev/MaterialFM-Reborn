@@ -62,6 +62,10 @@ Application::Application()
 		if (atlas_tex_result == Engine::AssetError::Ok) {
 			m_icon_atlas = atlas_meta.value();
 			m_icon_atlas_handle = assets().texture_handle("gui_icons_atlas");
+			if (auto *atlas_texture {
+			        assets().texture_mut(m_icon_atlas_handle) }) {
+				atlas_texture->can_be_solid_source = true;
+			}
 			m_has_icon_atlas = true;
 		}
 	}

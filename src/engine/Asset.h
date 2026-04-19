@@ -23,6 +23,7 @@ struct Texture
 	std::vector<uint32_t> data {};
 	mutable uint32_t revision { 1 };
 	mutable uint32_t uploaded_revision {};
+	bool can_be_solid_source {};
 
 	auto u_max() const -> float { return static_cast<float>(content_width); }
 	auto v_max() const -> float { return static_cast<float>(content_height); }

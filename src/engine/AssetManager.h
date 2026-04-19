@@ -107,10 +107,12 @@ struct AssetManager
 	auto unload_font(FontHandle handle) -> AssetError;
 
 	auto texture(std::string_view name) const -> Texture const *;
+	auto texture_mut(std::string_view name) -> Texture *;
 	auto sound(std::string_view name) const -> Sound const *;
 	auto song(std::string_view name) const -> Song const *;
 	auto font(std::string_view name) const -> Font const *;
 	auto texture(TextureHandle handle) const -> Texture const *;
+	auto texture_mut(TextureHandle handle) -> Texture *;
 	auto sound(SoundHandle handle) const -> Sound const *;
 	auto song(SongHandle handle) const -> Song const *;
 	auto font(FontHandle handle) const -> Font const *;

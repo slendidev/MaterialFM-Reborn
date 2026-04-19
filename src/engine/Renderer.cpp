@@ -210,6 +210,7 @@ auto wrap_line_words(std::string_view const line,
 auto Renderer::ensure_font_atlas(Font const &font) -> void
 {
 	if (font.atlas.width > 0 && font.atlas.height > 0) {
+		font.atlas.can_be_solid_source = true;
 		if (!font.atlas.data.empty()) {
 			font.atlas.data[0] = 0xFFFFFFFFu;
 		}
@@ -223,6 +224,7 @@ auto Renderer::ensure_font_atlas(Font const &font) -> void
 	font.atlas.data.assign(static_cast<size_t>(FONT_ATLAS_DIMENSION)
 	        * static_cast<size_t>(FONT_ATLAS_DIMENSION),
 	    0);
+	font.atlas.can_be_solid_source = true;
 	font.atlas.data[0] = 0xFFFFFFFFu;
 	font.atlas_pen_x = 1;
 	font.atlas_pen_y = 1;
@@ -580,6 +582,10 @@ auto Renderer::solid_batch_texture() -> Texture const *
 		if (font != nullptr) {
 			ensure_font_atlas(*font);
 			return &font->atlas;
+		}
+
+		if (m_batch_texture->can_be_solid_source) {
+			return m_batch_texture;
 		}
 	}
 
