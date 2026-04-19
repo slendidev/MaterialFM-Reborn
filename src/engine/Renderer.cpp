@@ -599,7 +599,7 @@ auto Renderer::solid_batch_texture() -> Texture const *
 	return &active_font->atlas;
 }
 
-auto Renderer::white_atlas_src() -> Rect<>
+[[gnu::always_inline]] inline auto white_atlas_src() -> Rect<>
 {
 	return Rect<> {
 		.position = smath::Vec2 { 0.0f, 0.0f },

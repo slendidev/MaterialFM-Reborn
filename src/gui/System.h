@@ -1,6 +1,7 @@
 #pragma once
 
 #include <any>
+#include <array>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -141,12 +142,16 @@ public:
 	struct Stats
 	{
 		int recomposed_scopes {};
-		int recomposed_root {};
-		int recomposed_sidebar {};
-		int recomposed_dialog {};
+		std::vector<int> recomposed_by_scope {};
 		int relaid_out_nodes {};
 		int rendered_nodes {};
 		int culled_nodes {};
+	};
+
+	struct ScopeConfig
+	{
+		int priority {};
+		bool focus_pass_through {};
 	};
 
 	struct MeasuredSize
@@ -169,7 +174,7 @@ public:
 	auto compose(std::function<void(Context &)> const &fn) -> void;
 	auto end_frame(WindowHandle handle) -> WindowFrameOutput const &;
 
-	auto invalidate_compose(Scope const scope) -> void
+	auto invalidate_compose(ScopeId const scope) -> void
 	{
 		m_structure_dirty = true;
 		mark_scope_dirty(scope);
@@ -177,7 +182,7 @@ public:
 			m_recompose_requested_during_compose = true;
 		}
 	}
-	auto invalidate_compose() -> void { invalidate_compose(Scope::Root); }
+	auto invalidate_compose() -> void { invalidate_compose(m_root_scope); }
 	auto invalidate_layout() -> void
 	{
 		m_layout_dirty = true;
@@ -195,12 +200,16 @@ public:
 		m_visual_dirty = true;
 	}
 	auto invalidate_visual() -> void { m_visual_dirty = true; }
-	auto sidebar_open() const -> bool { return scope_present(Scope::Sidebar); }
-	auto dialog_open() const -> bool { return scope_present(Scope::Dialog); }
-	auto sidebar_visible() const -> bool
+	auto register_scope(std::string_view name, ScopeConfig config) -> ScopeId;
+	auto root_scope() const -> ScopeId { return m_root_scope; }
+	auto set_scope_role(ScopeRole role, ScopeId scope) -> void;
+	auto scope_for_role(ScopeRole role) const -> ScopeId;
+	auto scope_present(ScopeId scope) const -> bool;
+	auto scope_active(ScopeId scope) const -> bool
 	{
-		return scope_present(Scope::Sidebar);
+		return active_scope() == scope;
 	}
+	auto scope_focus_pass_through(ScopeId scope) const -> bool;
 	auto selection_mode() const -> bool { return m_selection_mode; }
 	auto set_hud_visible(bool const visible) -> void
 	{
@@ -273,8 +282,8 @@ public:
 	auto dump_command_list_stdout(WindowHandle handle) const -> void;
 	auto dump_command_list_file(
 	    WindowHandle handle, std::string_view path) const -> bool;
-	auto mark_scope_recomposed(Scope scope) -> void;
-	auto mark_scope_dirty(Scope scope) -> void;
+	auto mark_scope_recomposed(ScopeId scope) -> void;
+	auto mark_scope_dirty(ScopeId scope) -> void;
 	auto clear_scope_dirty_flags() -> void;
 
 	auto theme() -> Theme & { return m_theme; }
@@ -282,7 +291,7 @@ public:
 
 	auto reconcile_node(Node *parent,
 	    Kind kind,
-	    Scope scope,
+	    ScopeId scope,
 	    Id key,
 	    FlexOptions const &options) -> Node *;
 	auto mark_compose_dirty() -> void;
@@ -322,7 +331,7 @@ private:
 	struct RenderNode
 	{
 		Kind kind { Kind::Root };
-		Scope scope { Scope::Root };
+		ScopeId scope {};
 		Id key {};
 		Id local_key {};
 		Engine::Rect<> rect {};
@@ -373,16 +382,31 @@ private:
 		uint32_t available_width_bits {};
 		MeasuredSize size {};
 	};
+	struct ScopeMetadata
+	{
+		std::string name {};
+		int priority {};
+		bool focus_pass_through {};
+	};
+
+	auto static role_slot(ScopeRole role) -> size_t
+	{
+		return static_cast<size_t>(role);
+	}
+	auto scope_slot(ScopeId scope) const -> size_t
+	{
+		return static_cast<size_t>(scope);
+	}
+	auto ensure_scope_capacity(ScopeId scope) -> void;
 
 	auto rebuild_node_index() -> void;
-	auto scope_present(Scope scope) const -> bool;
-	auto active_scope() const -> Scope;
+	auto active_scope() const -> ScopeId;
 	auto collect_reconcile_nodes(std::unique_ptr<Node> node) -> void;
 	auto stash_orphan(std::unique_ptr<Node> node) -> void;
 	auto build_render_cache_node(
 	    Node const &source, uint16_t depth, uint16_t parent_index) -> uint16_t;
 	auto find_node_by_key(Id key) -> Node *;
-	auto gather_focusables(Node &node, Scope scope, std::vector<Node *> &out)
+	auto gather_focusables(Node &node, ScopeId scope, std::vector<Node *> &out)
 	    -> void;
 	auto active_scope_focus_key() -> Id &;
 	auto active_scope_focus_key() const -> Id const &;
@@ -501,9 +525,7 @@ private:
 	bool m_world_dirty { true };
 	bool m_render_cache_dirty { true };
 	bool m_visual_dirty { true };
-	bool m_root_scope_dirty { true };
-	bool m_sidebar_scope_dirty { true };
-	bool m_dialog_scope_dirty { true };
+	std::vector<bool> m_scope_dirty {};
 	bool m_selection_mode {};
 	bool m_hud_visible { true };
 	bool m_debug_bounds {};
@@ -526,13 +548,16 @@ private:
 	std::unordered_set<Id, Id::Hash> m_selected {};
 	std::unordered_set<Id, Id::Hash> m_world_subtree_dirty {};
 	Id m_pending_selectable_activation {};
-	Id m_root_focus_key {};
-	Id m_sidebar_focus_key {};
-	Id m_dialog_focus_key {};
+	std::vector<Id> m_focus_key_by_scope {};
 	float m_vertical_nav_anchor_x {};
 	float m_horizontal_nav_anchor_y {};
 	bool m_has_vertical_nav_anchor_x {};
 	bool m_has_horizontal_nav_anchor_y {};
+	ScopeId m_root_scope {};
+	std::vector<ScopeMetadata> m_scope_metadata {};
+	std::vector<bool> m_scope_present_cache {};
+	std::array<ScopeId, 3> m_scope_roles {};
+	ScopeId m_active_scope_cached {};
 	struct ScrollTweenState
 	{
 		Animation::Tween x {};

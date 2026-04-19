@@ -12,10 +12,11 @@ namespace
 constexpr float PI { 3.14159265358979323846f };
 constexpr float RENDER_ALPHA_EPSILON { 0.0001f };
 
-auto scope_accepts_focus(Scope const node_scope, Scope const active_scope)
-    -> bool
+auto scope_accepts_focus(bool const scope_pass_through,
+    ScopeId const node_scope,
+    ScopeId const active_scope) -> bool
 {
-	return node_scope == Scope::Hud || node_scope == active_scope;
+	return scope_pass_through || node_scope == active_scope;
 }
 
 auto color_with_alpha(smath::Vec4 color, float const alpha) -> smath::Vec4
@@ -189,7 +190,8 @@ auto System::try_make_render_state(System::RenderNode const &node,
 	}
 
 	auto const scope_is_active {
-		scope_accepts_focus(node.scope, active_scope()),
+		scope_accepts_focus(
+		    scope_focus_pass_through(node.scope), node.scope, active_scope()),
 	};
 	out.visible_rect = *visible_rect;
 	out.opacity = std::clamp(parent_opacity * node.opacity, 0.0f, 1.0f);
@@ -559,7 +561,8 @@ auto System::emit_node_self_into_passes(PassBuckets &passes,
 	}
 
 	auto const scope_is_active {
-		scope_accepts_focus(node.scope, active_scope()),
+		scope_accepts_focus(
+		    scope_focus_pass_through(node.scope), node.scope, active_scope()),
 	};
 	auto const focused_here {
 		scope_is_active && focused_key.valid() && focused_key == node.key,

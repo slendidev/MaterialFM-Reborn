@@ -251,7 +251,6 @@ private:
 	    -> std::pair<Font const *, FontShapeCache *>;
 	auto find_font_by_atlas(Texture const *texture) const -> Font const *;
 	auto solid_batch_texture() -> Texture const *;
-	static auto white_atlas_src() -> Rect<>;
 
 	auto ensure_batch_capacity(size_t vertex_count, size_t index_count) -> void;
 	auto push_quad(Texture const *texture,

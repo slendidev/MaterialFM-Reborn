@@ -587,11 +587,75 @@ auto System::measure_node(Node const &node, float const available_width) const
 
 System::System()
 {
+	m_scope_metadata.push_back(ScopeMetadata {});
+	m_scope_dirty.push_back(false);
+	m_scope_present_cache.push_back(false);
+	m_focus_key_by_scope.push_back(Id {});
+	m_stats.recomposed_by_scope.push_back(0);
+	m_root_scope = register_scope(
+	    "root", ScopeConfig { .priority = 0, .focus_pass_through = false });
+	m_scope_roles[role_slot(ScopeRole::Overlay)] = m_root_scope;
+	m_scope_roles[role_slot(ScopeRole::Exclusive)] = m_root_scope;
+	m_scope_roles[role_slot(ScopeRole::Passive)] = m_root_scope;
+	m_active_scope_cached = m_root_scope;
 	m_root = std::make_unique<Node>();
 	m_root->kind = Kind::Root;
-	m_root->scope = Scope::Root;
+	m_root->scope = m_root_scope;
 	m_root->key = this->id("root");
 	m_root->local_key = this->id("root");
+	mark_scope_dirty(m_root_scope);
+}
+
+auto System::register_scope(
+    std::string_view const name, ScopeConfig const config) -> ScopeId
+{
+	for (ScopeId scope { 1u }; scope < m_scope_metadata.size(); ++scope) {
+		auto const &meta { m_scope_metadata[scope_slot(scope)] };
+		if (meta.name == name) {
+			m_scope_metadata[scope_slot(scope)] = ScopeMetadata {
+				.name = std::string(name),
+				.priority = config.priority,
+				.focus_pass_through = config.focus_pass_through,
+			};
+			return scope;
+		}
+	}
+	if (m_scope_metadata.size() >= static_cast<size_t>(UINT16_MAX)) {
+		return m_root_scope;
+	}
+	auto const scope { static_cast<ScopeId>(m_scope_metadata.size()) };
+	m_scope_metadata.push_back(ScopeMetadata {
+	    .name = std::string(name),
+	    .priority = config.priority,
+	    .focus_pass_through = config.focus_pass_through,
+	});
+	ensure_scope_capacity(scope);
+	return scope;
+}
+
+auto System::set_scope_role(ScopeRole const role, ScopeId const scope) -> void
+{
+	if (scope == 0 || scope >= m_scope_metadata.size()) {
+		return;
+	}
+	m_scope_roles[role_slot(role)] = scope;
+}
+
+auto System::scope_for_role(ScopeRole const role) const -> ScopeId
+{
+	auto const scope { m_scope_roles[role_slot(role)] };
+	if (scope == 0 || scope >= m_scope_metadata.size()) {
+		return m_root_scope;
+	}
+	return scope;
+}
+
+auto System::scope_focus_pass_through(ScopeId const scope) const -> bool
+{
+	if (scope == 0 || scope >= m_scope_metadata.size()) {
+		return false;
+	}
+	return m_scope_metadata[scope_slot(scope)].focus_pass_through;
 }
 
 auto System::set_icon_atlas(uint32_t const image_id, IconAtlas const &atlas)
@@ -600,7 +664,7 @@ auto System::set_icon_atlas(uint32_t const image_id, IconAtlas const &atlas)
 	m_icon_image_id = image_id;
 	m_icon_rects = atlas.rects;
 	m_visual_dirty = true;
-	mark_scope_dirty(Scope::Root);
+	mark_scope_dirty(m_root_scope);
 	m_structure_dirty = true;
 }
 
@@ -617,44 +681,43 @@ auto System::sample_animation_ref(Animation::Ref const &ref, Id const owner_key)
 	return resolve_animated_float(ref, owner_key);
 }
 
-auto System::mark_scope_recomposed(Scope const scope) -> void
+auto System::mark_scope_recomposed(ScopeId const scope) -> void
 {
-	if (scope == Scope::Root) {
-		m_stats.recomposed_root += 1;
+	if (scope == 0 || scope >= m_stats.recomposed_by_scope.size()) {
 		return;
 	}
-	if (scope == Scope::Sidebar) {
-		m_stats.recomposed_sidebar += 1;
-		return;
-	}
-	if (scope == Scope::Hud) {
-		return;
-	}
-	m_stats.recomposed_dialog += 1;
+	m_stats.recomposed_by_scope[scope_slot(scope)] += 1;
 }
 
-auto System::mark_scope_dirty(Scope const scope) -> void
+auto System::mark_scope_dirty(ScopeId const scope) -> void
 {
-	switch (scope) {
-	case Scope::Root:
-		m_root_scope_dirty = true;
-		break;
-	case Scope::Sidebar:
-		m_sidebar_scope_dirty = true;
-		break;
-	case Scope::Dialog:
-		m_dialog_scope_dirty = true;
-		break;
-	case Scope::Hud:
-		break;
+	if (scope == 0) {
+		return;
 	}
+	ensure_scope_capacity(scope);
+	m_scope_dirty[scope_slot(scope)] = true;
 }
 
 auto System::clear_scope_dirty_flags() -> void
 {
-	m_root_scope_dirty = false;
-	m_sidebar_scope_dirty = false;
-	m_dialog_scope_dirty = false;
+	std::fill(m_scope_dirty.begin(), m_scope_dirty.end(), false);
+}
+
+auto System::ensure_scope_capacity(ScopeId const scope) -> void
+{
+	auto const required { scope_slot(scope) + 1 };
+	if (m_scope_dirty.size() < required) {
+		m_scope_dirty.resize(required, false);
+	}
+	if (m_scope_present_cache.size() < required) {
+		m_scope_present_cache.resize(required, false);
+	}
+	if (m_focus_key_by_scope.size() < required) {
+		m_focus_key_by_scope.resize(required);
+	}
+	if (m_stats.recomposed_by_scope.size() < required) {
+		m_stats.recomposed_by_scope.resize(required, 0);
+	}
 }
 
 auto System::collect_reconcile_nodes(std::unique_ptr<Node> node) -> void
@@ -774,6 +837,7 @@ auto System::begin_frame(WindowHandle const handle,
 	m_dt = dt;
 	m_confirm_hold_started = false;
 	m_stats = Stats {};
+	m_stats.recomposed_by_scope.resize(m_scope_metadata.size(), 0);
 	if (window_rect_changed) {
 		m_layout_dirty = true;
 		m_render_cache_dirty = true;
@@ -815,14 +879,11 @@ auto System::compose(std::function<void(Context &)> const &fn) -> void
 	begin_compose_tracking();
 	m_state_touched.clear();
 	m_stats.recomposed_scopes += 1;
-	if (m_root_scope_dirty) {
-		mark_scope_recomposed(Scope::Root);
-	}
-	if (m_sidebar_scope_dirty) {
-		mark_scope_recomposed(Scope::Sidebar);
-	}
-	if (m_dialog_scope_dirty) {
-		mark_scope_recomposed(Scope::Dialog);
+	for (ScopeId i { 1u }; i < m_scope_dirty.size(); ++i) {
+		if (!m_scope_dirty[i]) {
+			continue;
+		}
+		mark_scope_recomposed(i);
 	}
 
 	m_reconcile_nodes.clear();
@@ -866,7 +927,7 @@ auto System::prune_state_store() -> void
 
 auto System::reconcile_node(Node *const parent,
     Kind const kind,
-    Scope const scope,
+    ScopeId const scope,
     Id const key,
     FlexOptions const &options) -> Node *
 {
@@ -1051,6 +1112,8 @@ auto System::find_node_by_key(Id const key) -> Node *
 auto System::rebuild_node_index() -> void
 {
 	m_nodes_by_key.clear();
+	std::fill(
+	    m_scope_present_cache.begin(), m_scope_present_cache.end(), false);
 
 	std::vector<Node *> stack;
 	stack.push_back(m_root.get());
@@ -1064,50 +1127,47 @@ auto System::rebuild_node_index() -> void
 		}
 
 		m_nodes_by_key[node->key] = node;
+		ensure_scope_capacity(node->scope);
+		m_scope_present_cache[scope_slot(node->scope)] = true;
 
 		for (auto &child : node->children) {
 			stack.push_back(child.get());
 		}
 	}
-}
 
-auto System::scope_present(Scope const scope) const -> bool
-{
-	if (m_root == nullptr) {
-		return false;
-	}
-
-	std::vector<Node const *> stack;
-	stack.push_back(m_root.get());
-	while (!stack.empty()) {
-		auto const *node { stack.back() };
-		stack.pop_back();
-		if (node == nullptr) {
+	m_active_scope_cached = m_root_scope;
+	auto best_priority { std::numeric_limits<int>::min() };
+	for (ScopeId scope { 1u }; scope < m_scope_metadata.size(); ++scope) {
+		if (scope >= m_scope_present_cache.size()
+		    || !m_scope_present_cache[scope_slot(scope)]) {
 			continue;
 		}
-		if (node->scope == scope) {
-			return true;
+		auto const &meta { m_scope_metadata[scope_slot(scope)] };
+		if (meta.focus_pass_through) {
+			continue;
 		}
-		for (auto const &child : node->children) {
-			stack.push_back(child.get());
+		if (meta.priority >= best_priority) {
+			best_priority = meta.priority;
+			m_active_scope_cached = scope;
 		}
 	}
-	return false;
 }
 
-auto System::active_scope() const -> Scope
+auto System::scope_present(ScopeId const scope) const -> bool
 {
-	if (scope_present(Scope::Dialog)) {
-		return Scope::Dialog;
+	if (scope == 0 || scope >= m_scope_present_cache.size()) {
+		return false;
 	}
-	if (scope_present(Scope::Sidebar)) {
-		return Scope::Sidebar;
-	}
-	return Scope::Root;
+	return m_scope_present_cache[scope_slot(scope)];
+}
+
+auto System::active_scope() const -> ScopeId
+{
+	return m_active_scope_cached;
 }
 
 auto System::gather_focusables(
-    Node &node, Scope const scope, std::vector<Node *> &out) -> void
+    Node &node, ScopeId const scope, std::vector<Node *> &out) -> void
 {
 	if (node.scope == scope && node.interaction.interactive) {
 		out.push_back(&node);
@@ -1119,26 +1179,12 @@ auto System::gather_focusables(
 
 auto System::active_scope_focus_key() -> Id &
 {
-	auto const scope { active_scope() };
-	if (scope == Scope::Sidebar) {
-		return m_sidebar_focus_key;
-	}
-	if (scope == Scope::Dialog) {
-		return m_dialog_focus_key;
-	}
-	return m_root_focus_key;
+	return m_focus_key_by_scope[scope_slot(active_scope())];
 }
 
 auto System::active_scope_focus_key() const -> Id const &
 {
-	auto const scope { active_scope() };
-	if (scope == Scope::Sidebar) {
-		return m_sidebar_focus_key;
-	}
-	if (scope == Scope::Dialog) {
-		return m_dialog_focus_key;
-	}
-	return m_root_focus_key;
+	return m_focus_key_by_scope[scope_slot(active_scope())];
 }
 
 auto System::sync_focus() -> void
@@ -2885,9 +2931,11 @@ auto System::end_frame(WindowHandle const handle) -> WindowFrameOutput const &
 		std::format_to(std::back_inserter(hud_line),
 		    "rc:{} r:{} s:{} d:{} ly:{} rn:{} cl:{} pl:{}",
 		    m_stats.recomposed_scopes,
-		    m_stats.recomposed_root,
-		    m_stats.recomposed_sidebar,
-		    m_stats.recomposed_dialog,
+		    m_stats.recomposed_by_scope[scope_slot(m_root_scope)],
+		    m_stats.recomposed_by_scope[scope_slot(
+		        scope_for_role(ScopeRole::Overlay))],
+		    m_stats.recomposed_by_scope[scope_slot(
+		        scope_for_role(ScopeRole::Exclusive))],
 		    m_stats.relaid_out_nodes,
 		    m_stats.rendered_nodes,
 		    m_stats.culled_nodes,

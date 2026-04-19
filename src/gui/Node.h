@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -16,12 +17,13 @@ namespace Gui
 
 using AnimatedScalar = std::variant<float, Animation::Ref>;
 
-enum class Scope
+using ScopeId = uint16_t;
+
+enum class ScopeRole : uint8_t
 {
-	Root,
-	Sidebar,
-	Dialog,
-	Hud,
+	Overlay,
+	Exclusive,
+	Passive,
 };
 
 enum class Kind
@@ -225,7 +227,7 @@ struct Node
 	};
 
 	Kind kind { Kind::Root };
-	Scope scope { Scope::Root };
+	ScopeId scope {};
 	Id key {};
 	Id local_key {};
 	ContentState content {};

@@ -1067,9 +1067,6 @@ public:
 		scrollable(this->id(key), options, fn);
 	}
 
-	auto sidebar_open() const -> bool { return m_system.sidebar_open(); }
-	auto sidebar_visible() const -> bool { return m_system.sidebar_visible(); }
-	auto dialog_open() const -> bool { return m_system.dialog_open(); }
 	auto is_visible() const -> bool;
 	auto visibility_pause_condition() const -> std::function<bool()>;
 	auto restart_animation(Animation::Ref const &ref) -> void;
@@ -1092,9 +1089,9 @@ public:
 	auto theme() const -> Theme const & { return m_system.theme(); }
 
 private:
-	auto push_node(Kind kind, Id key, Scope scope, FlexOptions const &options)
+	auto push_node(Kind kind, Id key, ScopeId scope, FlexOptions const &options)
 	    -> Node *;
-	auto push_node(Kind kind, Id key, Scope scope) -> Node *;
+	auto push_node(Kind kind, Id key, ScopeId scope) -> Node *;
 	auto resolve_animation_ref(Animation::Ref const &ref, bool restart = false)
 	    -> Animation::Ref;
 	auto resolve_animated_scalar(std::optional<AnimatedScalar> const &value)
@@ -1104,7 +1101,7 @@ private:
 	System &m_system;
 	Node *m_root {};
 	Node *m_current {};
-	Scope m_scope { Scope::Root };
+	ScopeId m_scope {};
 	std::unordered_map<std::string, uint32_t> m_id_counters {};
 };
 

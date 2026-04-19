@@ -199,12 +199,13 @@ auto ScrollOptions::as_flex_options() const -> FlexOptions
 }
 
 Context::Context(System &system, Node *const root)
-    : m_system(system), m_root(root), m_current(root)
+    : m_system(system), m_root(root), m_current(root),
+      m_scope(system.root_scope())
 { }
 
 auto Context::push_node(Kind const kind,
     Id const key,
-    Scope const scope,
+    ScopeId const scope,
     FlexOptions const &options) -> Node *
 {
 	Node *node { m_system.reconcile_node(
@@ -213,7 +214,7 @@ auto Context::push_node(Kind const kind,
 	return node;
 }
 
-auto Context::push_node(Kind const kind, Id const key, Scope const scope)
+auto Context::push_node(Kind const kind, Id const key, ScopeId const scope)
     -> Node *
 {
 	static auto const defaults { FlexOptions::builder().build() };
@@ -321,13 +322,13 @@ auto Context::layer(Id const key,
 	case LayerFocusMode::Inherit:
 		break;
 	case LayerFocusMode::Overlay:
-		m_scope = Scope::Sidebar;
+		m_scope = m_system.scope_for_role(ScopeRole::Overlay);
 		break;
 	case LayerFocusMode::Exclusive:
-		m_scope = Scope::Dialog;
+		m_scope = m_system.scope_for_role(ScopeRole::Exclusive);
 		break;
 	case LayerFocusMode::Passive:
-		m_scope = Scope::Hud;
+		m_scope = m_system.scope_for_role(ScopeRole::Passive);
 		break;
 	}
 	auto const resolved_top { resolve_animated_scalar(spec.top) };
@@ -461,16 +462,10 @@ auto Context::scrollable(
 
 auto Context::is_visible() const -> bool
 {
-	if (m_scope == Scope::Sidebar) {
-		return m_system.sidebar_visible();
-	}
-	if (m_scope == Scope::Dialog) {
-		return m_system.dialog_open();
-	}
-	if (m_scope == Scope::Hud) {
+	if (m_system.scope_focus_pass_through(m_scope)) {
 		return true;
 	}
-	return true;
+	return m_system.scope_present(m_scope);
 }
 
 auto Context::visibility_pause_condition() const -> std::function<bool()>
@@ -478,16 +473,10 @@ auto Context::visibility_pause_condition() const -> std::function<bool()>
 	auto const scope { m_scope };
 	auto *system { &m_system };
 	return [scope, system]() {
-		if (scope == Scope::Sidebar) {
-			return !system->sidebar_visible();
-		}
-		if (scope == Scope::Dialog) {
-			return !system->dialog_open();
-		}
-		if (scope == Scope::Hud) {
+		if (system->scope_focus_pass_through(scope)) {
 			return false;
 		}
-		return false;
+		return !system->scope_present(scope);
 	};
 }
 

@@ -14,6 +14,8 @@
 namespace Gui::components
 {
 
+auto register_default_scope_roles(System &system) -> void;
+
 struct ToastRuntime;
 
 struct ButtonStyle

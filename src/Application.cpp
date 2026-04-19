@@ -50,6 +50,7 @@ Application::Application()
 	                              float const size) {
 		return renderer().measure_text(text, size, m_gui_measure_font_handle);
 	});
+	Gui::components::register_default_scope_roles(m_gui);
 
 	auto const atlas_meta {
 		Gui::load_icon_atlas("assets/Textures/atlas.txt"),

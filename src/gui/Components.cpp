@@ -7,6 +7,19 @@
 namespace Gui::components
 {
 
+auto register_default_scope_roles(System &system) -> void
+{
+	auto const sidebar_scope { system.register_scope("sidebar",
+		System::ScopeConfig { .priority = 100, .focus_pass_through = false }) };
+	auto const dialog_scope { system.register_scope("dialog",
+		System::ScopeConfig { .priority = 200, .focus_pass_through = false }) };
+	auto const hud_scope { system.register_scope("hud",
+		System::ScopeConfig { .priority = -100, .focus_pass_through = true }) };
+	system.set_scope_role(ScopeRole::Overlay, sidebar_scope);
+	system.set_scope_role(ScopeRole::Exclusive, dialog_scope);
+	system.set_scope_role(ScopeRole::Passive, hud_scope);
+}
+
 struct ToastRuntime
 {
 	struct State
