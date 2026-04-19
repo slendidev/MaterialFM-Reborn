@@ -473,8 +473,9 @@ auto Application::on_update(float const dt) -> void
 		constexpr float PLOT_W { HISTOGRAM_W - 4.0f };
 		constexpr float PLOT_H { HISTOGRAM_H - 4.0f };
 		constexpr float FRAME_MS_SCALE_MAX { 50.0f };
-		constexpr float FRAME_MS_60FPS { 16.7f };
-		constexpr float FRAME_MS_30FPS { 33.33f };
+		constexpr float FRAME_MS_60FPS { 1000.0f / 60.0f };
+		constexpr float FRAME_MS_30FPS { 1000.0f / 30.0f };
+		constexpr float EPS { 0.5f };
 		constexpr smath::Vec4 HISTOGRAM_BORDER { 0.0f, 0.0f, 0.0f, 0.85f };
 
 		renderer().draw_rectangle(smath::Vec2 { HISTOGRAM_X, HISTOGRAM_Y },
@@ -565,12 +566,16 @@ auto Application::on_update(float const dt) -> void
 				auto const x = PLOT_X + static_cast<float>(x_pixel);
 				auto const y = PLOT_Y + PLOT_H - bar_h;
 
-				smath::Vec4 color { 1.0f, 0.15f, 0.15f, 1.0f };
-				if (sample_ms <= FRAME_MS_60FPS) {
-					color = smath::Vec4 { 0.0f, 1.0f, 0.0f, 1.0f };
-				} else if (sample_ms <= FRAME_MS_30FPS) {
-					color = smath::Vec4 { 1.0f, 0.85f, 0.1f, 1.0f };
+				smath::Vec4 color;
+
+				if (sample_ms <= FRAME_MS_60FPS + EPS) {
+					color = { 0.0f, 1.0f, 0.0f, 1.0f };
+				} else if (sample_ms <= FRAME_MS_30FPS + EPS) {
+					color = { 1.0f, 0.85f, 0.1f, 1.0f };
+				} else {
+					color = { 1.0f, 0.15f, 0.15f, 1.0f };
 				}
+
 				uint32_t packed_color = smath::pack_unorm4x8(color);
 				Engine::GraphicsVertex tl { 0.f, 0.f, packed_color, x, y, 0.f };
 				Engine::GraphicsVertex tr {
