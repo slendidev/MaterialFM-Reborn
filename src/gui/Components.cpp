@@ -327,10 +327,6 @@ auto render_dialog(Context &ctx,
 	if (style.open != previous_open) {
 		ctx.restart_animation(opacity_ref);
 	}
-	auto const opacity {
-		std::clamp(ctx.sample_animation(opacity_ref), 0.0f, 1.0f),
-	};
-
 	ctx.layer(key,
 	    LayerSpec::builder()
 	        .focus_mode(style.open ? LayerFocusMode::Exclusive
@@ -345,7 +341,7 @@ auto render_dialog(Context &ctx,
 	        .height(screen_height)
 	        .build(),
 	    LayerStyle::builder()
-	        .draw_scrim(opacity > 0.001f)
+	        .draw_scrim(true)
 	        .scrim_color(scrim)
 	        .scrim_opacity(opacity_ref)
 	        .draw_fill(false)

@@ -10,6 +10,7 @@ namespace Gui
 namespace
 {
 constexpr float PI { 3.14159265358979323846f };
+constexpr float RENDER_ALPHA_EPSILON { 0.0001f };
 
 auto scope_accepts_focus(Scope const node_scope, Scope const active_scope)
     -> bool
@@ -34,6 +35,13 @@ auto choose_color(std::optional<smath::Vec4> const &candidate,
     smath::Vec4 const fallback) -> smath::Vec4
 {
 	return candidate.value_or(fallback);
+}
+
+auto layer_scrim_visible(
+    Kind const kind, bool const draw_scrim, float const scrim_opacity) -> bool
+{
+	return kind == Kind::Layer && draw_scrim
+	    && scrim_opacity > RENDER_ALPHA_EPSILON;
 }
 
 auto intersect_rects(Engine::Rect<> const a, Engine::Rect<> const b)
@@ -185,6 +193,11 @@ auto System::try_make_render_state(System::RenderNode const &node,
 	};
 	out.visible_rect = *visible_rect;
 	out.opacity = std::clamp(parent_opacity * node.opacity, 0.0f, 1.0f);
+	if (out.opacity <= RENDER_ALPHA_EPSILON
+	    && !layer_scrim_visible(
+	        node.kind, node.draw_scrim, node.scrim_opacity)) {
+		return false;
+	}
 	out.focused_here
 	    = scope_is_active && focused_key.valid() && focused_key == node.key;
 	out.selected_here = scope_is_active && m_selected.contains(node.key);
@@ -290,7 +303,12 @@ auto System::render_block(std::vector<DrawCommand> &draw_list,
 		}
 	}
 
-	if (m_debug_bounds && node.kind != Kind::Root) {
+	auto const debug_visible {
+		state.opacity > RENDER_ALPHA_EPSILON
+		    || layer_scrim_visible(
+		        node.kind, node.draw_scrim, node.scrim_opacity),
+	};
+	if (m_debug_bounds && node.kind != Kind::Root && debug_visible) {
 		draw_debug_bounds(passes.overlay,
 		    node_index,
 		    node.rect,
@@ -390,7 +408,7 @@ auto System::render_scrollable_block(std::vector<DrawCommand> &draw_list,
 		flush_clipped_passes(draw_list, passes, *scroll_clip);
 	}
 
-	if (m_debug_bounds) {
+	if (m_debug_bounds && state.opacity > RENDER_ALPHA_EPSILON) {
 		draw_debug_bounds(draw_list,
 		    node_index,
 		    node.rect,
@@ -486,7 +504,12 @@ auto System::collect_regular_subtree_into_passes(
 		}
 	}
 
-	if (m_debug_bounds && node.kind != Kind::Root) {
+	auto const debug_visible {
+		state.opacity > RENDER_ALPHA_EPSILON
+		    || layer_scrim_visible(
+		        node.kind, node.draw_scrim, node.scrim_opacity),
+	};
+	if (m_debug_bounds && node.kind != Kind::Root && debug_visible) {
 		draw_debug_bounds(passes.overlay,
 		    node_index,
 		    node.rect,
@@ -518,6 +541,22 @@ auto System::emit_node_self_into_passes(PassBuckets &passes,
 	};
 
 	m_stats.rendered_nodes += 1;
+
+	if (opacity <= RENDER_ALPHA_EPSILON) {
+		if (layer_scrim_visible(
+		        node.kind, node.draw_scrim, node.scrim_opacity)) {
+			auto scrim {
+				choose_color(node.scrim_color, m_theme.scrim),
+			};
+			scrim = color_with_alpha(scrim, scrim.w() * node.scrim_opacity);
+			passes.shapes.push_back(DrawCommand { .payload = DrawCommand::Rect {
+			                                          .rect = m_window_rect,
+			                                          .color = scrim,
+			                                      } });
+		}
+		stop_after_self = true;
+		return;
+	}
 
 	auto const scope_is_active {
 		scope_accepts_focus(node.scope, active_scope()),
