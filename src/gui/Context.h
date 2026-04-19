@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 
 #include "engine/Math.h"
@@ -135,37 +136,154 @@ private:
 class FlexOptions::Builder
 {
 public:
-	auto row() -> Builder &;
-	auto row_reverse() -> Builder &;
-	auto column() -> Builder &;
-	auto column_reverse() -> Builder &;
-	auto direction(FlexDirection value) -> Builder &;
-	auto wrap(FlexWrap value) -> Builder &;
-	auto justify_content(JustifyContent value) -> Builder &;
-	auto align_items(AlignItems value) -> Builder &;
-	auto align_content(AlignContent value) -> Builder &;
-	auto align_self(AlignSelf value) -> Builder &;
-	auto gap(float value) -> Builder &;
-	auto row_gap(float value) -> Builder &;
-	auto column_gap(float value) -> Builder &;
-	auto width(float value) -> Builder &;
-	auto width(Animation::Ref value) -> Builder &;
-	auto height(float value) -> Builder &;
-	auto height(Animation::Ref value) -> Builder &;
-	auto flex(float grow, float shrink = 1.0f) -> Builder &;
-	auto flex_grow(float value) -> Builder &;
-	auto flex_shrink(float value) -> Builder &;
-	auto flex_basis_px(float value) -> Builder &;
-	auto flex_basis_auto() -> Builder &;
+	auto row() -> Builder &
+	{
+		m_options.m_direction = FlexDirection::Row;
+		return *this;
+	}
+	auto row_reverse() -> Builder &
+	{
+		m_options.m_direction = FlexDirection::RowReverse;
+		return *this;
+	}
+	auto column() -> Builder &
+	{
+		m_options.m_direction = FlexDirection::Column;
+		return *this;
+	}
+	auto column_reverse() -> Builder &
+	{
+		m_options.m_direction = FlexDirection::ColumnReverse;
+		return *this;
+	}
+	auto direction(FlexDirection const value) -> Builder &
+	{
+		m_options.m_direction = value;
+		return *this;
+	}
+	auto wrap(FlexWrap const value) -> Builder &
+	{
+		m_options.m_wrap = value;
+		return *this;
+	}
+	auto justify_content(JustifyContent const value) -> Builder &
+	{
+		m_options.m_justify_content = value;
+		return *this;
+	}
+	auto align_items(AlignItems const value) -> Builder &
+	{
+		m_options.m_align_items = value;
+		return *this;
+	}
+	auto align_content(AlignContent const value) -> Builder &
+	{
+		m_options.m_align_content = value;
+		return *this;
+	}
+	auto align_self(AlignSelf const value) -> Builder &
+	{
+		m_options.m_common.align_self = value;
+		return *this;
+	}
+	auto gap(float const value) -> Builder &
+	{
+		m_options.m_gap = value;
+		return *this;
+	}
+	auto row_gap(float const value) -> Builder &
+	{
+		m_options.m_row_gap = value;
+		return *this;
+	}
+	auto column_gap(float const value) -> Builder &
+	{
+		m_options.m_column_gap = value;
+		return *this;
+	}
+	auto width(float const value) -> Builder &
+	{
+		m_options.m_common.width = value;
+		return *this;
+	}
+	auto width(Animation::Ref value) -> Builder &
+	{
+		m_options.m_common.width = std::move(value);
+		return *this;
+	}
+	auto height(float const value) -> Builder &
+	{
+		m_options.m_common.height = value;
+		return *this;
+	}
+	auto height(Animation::Ref value) -> Builder &
+	{
+		m_options.m_common.height = std::move(value);
+		return *this;
+	}
+	auto flex(float const grow, float const shrink = 1.0f) -> Builder &
+	{
+		m_options.m_common.flex_grow = grow;
+		m_options.m_common.flex_shrink = shrink;
+		return *this;
+	}
+	auto flex_grow(float const value) -> Builder &
+	{
+		m_options.m_common.flex_grow = value;
+		return *this;
+	}
+	auto flex_shrink(float const value) -> Builder &
+	{
+		m_options.m_common.flex_shrink = value;
+		return *this;
+	}
+	auto flex_basis_px(float const value) -> Builder &
+	{
+		m_options.m_common.flex_basis = value;
+		return *this;
+	}
+	auto flex_basis_auto() -> Builder &
+	{
+		m_options.m_common.flex_basis.reset();
+		return *this;
+	}
 	auto merge(FlexOptions const &options) -> Builder &;
-	auto min_width(float value) -> Builder &;
-	auto min_height(float value) -> Builder &;
-	auto max_width(float value) -> Builder &;
-	auto max_height(float value) -> Builder &;
-	auto padding(float value) -> Builder &;
-	auto padding(std::array<float, 2> value) -> Builder &;
-	auto padding(std::array<float, 4> value) -> Builder &;
-	auto build() const -> FlexOptions;
+	auto min_width(float const value) -> Builder &
+	{
+		m_options.m_common.min_width = value;
+		return *this;
+	}
+	auto min_height(float const value) -> Builder &
+	{
+		m_options.m_common.min_height = value;
+		return *this;
+	}
+	auto max_width(float const value) -> Builder &
+	{
+		m_options.m_common.max_width = value;
+		return *this;
+	}
+	auto max_height(float const value) -> Builder &
+	{
+		m_options.m_common.max_height = value;
+		return *this;
+	}
+	auto padding(float const value) -> Builder &
+	{
+		m_options.m_common.padding = value;
+		return *this;
+	}
+	auto padding(std::array<float, 2> const value) -> Builder &
+	{
+		m_options.m_common.padding = value;
+		return *this;
+	}
+	auto padding(std::array<float, 4> const value) -> Builder &
+	{
+		m_options.m_common.padding = value;
+		return *this;
+	}
+	auto build() const -> FlexOptions { return m_options; }
 
 private:
 	FlexOptions m_options {};
@@ -256,28 +374,113 @@ private:
 class ScrollOptions::Builder
 {
 public:
-	auto axis(ScrollAxis value) -> Builder &;
-	auto vertical() -> Builder &;
-	auto horizontal() -> Builder &;
-	auto both() -> Builder &;
-	auto reveal_mode(ScrollRevealMode value) -> Builder &;
-	auto step(float value) -> Builder &;
-	auto max_width(float value) -> Builder &;
-	auto max_height(float value) -> Builder &;
-	auto min_width(float value) -> Builder &;
-	auto min_height(float value) -> Builder &;
-	auto width(float value) -> Builder &;
-	auto height(float value) -> Builder &;
-	auto flex(float grow, float shrink = 1.0f) -> Builder &;
-	auto flex_grow(float value) -> Builder &;
-	auto flex_shrink(float value) -> Builder &;
-	auto flex_basis_px(float value) -> Builder &;
-	auto flex_basis_auto() -> Builder &;
-	auto align_self(AlignSelf value) -> Builder &;
-	auto padding(float value) -> Builder &;
-	auto padding(std::array<float, 2> value) -> Builder &;
-	auto padding(std::array<float, 4> value) -> Builder &;
-	auto build() const -> ScrollOptions;
+	auto axis(ScrollAxis const value) -> Builder &
+	{
+		m_options.m_axis = value;
+		return *this;
+	}
+	auto vertical() -> Builder &
+	{
+		m_options.m_axis = ScrollAxis::Vertical;
+		return *this;
+	}
+	auto horizontal() -> Builder &
+	{
+		m_options.m_axis = ScrollAxis::Horizontal;
+		return *this;
+	}
+	auto both() -> Builder &
+	{
+		m_options.m_axis = ScrollAxis::Both;
+		return *this;
+	}
+	auto reveal_mode(ScrollRevealMode const value) -> Builder &
+	{
+		m_options.m_reveal_mode = value;
+		return *this;
+	}
+	auto step(float const value) -> Builder &
+	{
+		m_options.m_step = value;
+		return *this;
+	}
+	auto max_width(float const value) -> Builder &
+	{
+		m_options.m_common.max_width = value;
+		return *this;
+	}
+	auto max_height(float const value) -> Builder &
+	{
+		m_options.m_common.max_height = value;
+		return *this;
+	}
+	auto min_width(float const value) -> Builder &
+	{
+		m_options.m_common.min_width = value;
+		return *this;
+	}
+	auto min_height(float const value) -> Builder &
+	{
+		m_options.m_common.min_height = value;
+		return *this;
+	}
+	auto width(float const value) -> Builder &
+	{
+		m_options.m_common.width = value;
+		return *this;
+	}
+	auto height(float const value) -> Builder &
+	{
+		m_options.m_common.height = value;
+		return *this;
+	}
+	auto flex(float const grow, float const shrink = 1.0f) -> Builder &
+	{
+		m_options.m_common.flex_grow = grow;
+		m_options.m_common.flex_shrink = shrink;
+		return *this;
+	}
+	auto flex_grow(float const value) -> Builder &
+	{
+		m_options.m_common.flex_grow = value;
+		return *this;
+	}
+	auto flex_shrink(float const value) -> Builder &
+	{
+		m_options.m_common.flex_shrink = value;
+		return *this;
+	}
+	auto flex_basis_px(float const value) -> Builder &
+	{
+		m_options.m_common.flex_basis = value;
+		return *this;
+	}
+	auto flex_basis_auto() -> Builder &
+	{
+		m_options.m_common.flex_basis.reset();
+		return *this;
+	}
+	auto align_self(AlignSelf const value) -> Builder &
+	{
+		m_options.m_common.align_self = value;
+		return *this;
+	}
+	auto padding(float const value) -> Builder &
+	{
+		m_options.m_common.padding = value;
+		return *this;
+	}
+	auto padding(std::array<float, 2> const value) -> Builder &
+	{
+		m_options.m_common.padding = value;
+		return *this;
+	}
+	auto padding(std::array<float, 4> const value) -> Builder &
+	{
+		m_options.m_common.padding = value;
+		return *this;
+	}
+	auto build() const -> ScrollOptions { return m_options; }
 
 private:
 	ScrollOptions m_options {};
@@ -299,14 +502,42 @@ struct TextStyle
 class TextStyle::Builder
 {
 public:
-	auto copy(TextStyle style) -> Builder &;
-	auto size(float value) -> Builder &;
-	auto align_x(TextAlignX value) -> Builder &;
-	auto align_y(TextAlignY value) -> Builder &;
-	auto use_pressable_state(bool value) -> Builder &;
-	auto color(smath::Vec4 value) -> Builder &;
-	auto selected_color(smath::Vec4 value) -> Builder &;
-	auto build() const -> TextStyle;
+	auto copy(TextStyle const style) -> Builder &
+	{
+		m_style = style;
+		return *this;
+	}
+	auto size(float const value) -> Builder &
+	{
+		m_style.size = value;
+		return *this;
+	}
+	auto align_x(TextAlignX const value) -> Builder &
+	{
+		m_style.align_x = value;
+		return *this;
+	}
+	auto align_y(TextAlignY const value) -> Builder &
+	{
+		m_style.align_y = value;
+		return *this;
+	}
+	auto use_pressable_state(bool const value) -> Builder &
+	{
+		m_style.use_pressable_state = value;
+		return *this;
+	}
+	auto color(smath::Vec4 const value) -> Builder &
+	{
+		m_style.color = value;
+		return *this;
+	}
+	auto selected_color(smath::Vec4 const value) -> Builder &
+	{
+		m_style.selected_color = value;
+		return *this;
+	}
+	auto build() const -> TextStyle { return m_style; }
 
 private:
 	TextStyle m_style {};
@@ -331,16 +562,52 @@ struct SurfaceStyle
 class SurfaceStyle::Builder
 {
 public:
-	auto draw_fill(bool value) -> Builder &;
-	auto draw_outline(bool value) -> Builder &;
-	auto use_pressable_state(bool value) -> Builder &;
-	auto radius(float value) -> Builder &;
-	auto outline_thickness(float value) -> Builder &;
-	auto fill_color(smath::Vec4 value) -> Builder &;
-	auto focus_fill_color(smath::Vec4 value) -> Builder &;
-	auto selected_fill_color(smath::Vec4 value) -> Builder &;
-	auto outline_color(smath::Vec4 value) -> Builder &;
-	auto build() const -> SurfaceStyle;
+	auto draw_fill(bool const value) -> Builder &
+	{
+		m_style.draw_fill = value;
+		return *this;
+	}
+	auto draw_outline(bool const value) -> Builder &
+	{
+		m_style.draw_outline = value;
+		return *this;
+	}
+	auto use_pressable_state(bool const value) -> Builder &
+	{
+		m_style.use_pressable_state = value;
+		return *this;
+	}
+	auto radius(float const value) -> Builder &
+	{
+		m_style.radius = value;
+		return *this;
+	}
+	auto outline_thickness(float const value) -> Builder &
+	{
+		m_style.outline_thickness = value;
+		return *this;
+	}
+	auto fill_color(smath::Vec4 const value) -> Builder &
+	{
+		m_style.fill_color = value;
+		return *this;
+	}
+	auto focus_fill_color(smath::Vec4 const value) -> Builder &
+	{
+		m_style.focus_fill_color = value;
+		return *this;
+	}
+	auto selected_fill_color(smath::Vec4 const value) -> Builder &
+	{
+		m_style.selected_fill_color = value;
+		return *this;
+	}
+	auto outline_color(smath::Vec4 const value) -> Builder &
+	{
+		m_style.outline_color = value;
+		return *this;
+	}
+	auto build() const -> SurfaceStyle { return m_style; }
 
 private:
 	SurfaceStyle m_style {};
@@ -360,11 +627,27 @@ struct IconStyle
 class IconStyle::Builder
 {
 public:
-	auto size(float value) -> Builder &;
-	auto use_pressable_state(bool value) -> Builder &;
-	auto tint(smath::Vec4 value) -> Builder &;
-	auto selected_tint(smath::Vec4 value) -> Builder &;
-	auto build() const -> IconStyle;
+	auto size(float const value) -> Builder &
+	{
+		m_style.size = value;
+		return *this;
+	}
+	auto use_pressable_state(bool const value) -> Builder &
+	{
+		m_style.use_pressable_state = value;
+		return *this;
+	}
+	auto tint(smath::Vec4 const value) -> Builder &
+	{
+		m_style.tint = value;
+		return *this;
+	}
+	auto selected_tint(smath::Vec4 const value) -> Builder &
+	{
+		m_style.selected_tint = value;
+		return *this;
+	}
+	auto build() const -> IconStyle { return m_style; }
 
 private:
 	IconStyle m_style {};
@@ -389,16 +672,56 @@ struct LayerStyle
 class LayerStyle::Builder
 {
 public:
-	auto draw_scrim(bool value) -> Builder &;
-	auto scrim_color(smath::Vec4 value) -> Builder &;
-	auto scrim_opacity(float value) -> Builder &;
-	auto scrim_opacity(Animation::Ref value) -> Builder &;
-	auto draw_fill(bool value) -> Builder &;
-	auto radius(float value) -> Builder &;
-	auto fill_color(smath::Vec4 value) -> Builder &;
-	auto opacity(float value) -> Builder &;
-	auto opacity(Animation::Ref value) -> Builder &;
-	auto build() const -> LayerStyle;
+	auto draw_scrim(bool const value) -> Builder &
+	{
+		m_style.draw_scrim = value;
+		return *this;
+	}
+	auto scrim_color(smath::Vec4 const value) -> Builder &
+	{
+		m_style.scrim_color = value;
+		return *this;
+	}
+	auto scrim_opacity(float const value) -> Builder &
+	{
+		m_style.scrim_opacity = value;
+		m_style.animated_scrim_opacity.reset();
+		return *this;
+	}
+	auto scrim_opacity(Animation::Ref value) -> Builder &
+	{
+		m_style.scrim_opacity = value.fallback;
+		m_style.animated_scrim_opacity = std::move(value);
+		return *this;
+	}
+	auto draw_fill(bool const value) -> Builder &
+	{
+		m_style.draw_fill = value;
+		return *this;
+	}
+	auto radius(float const value) -> Builder &
+	{
+		m_style.radius = value;
+		return *this;
+	}
+	auto fill_color(smath::Vec4 const value) -> Builder &
+	{
+		m_style.fill_color = value;
+		return *this;
+	}
+	auto opacity(float const value) -> Builder &
+	{
+		m_style.opacity = value;
+		m_style.animated_opacity.reset();
+		return *this;
+	}
+	auto opacity(Animation::Ref value) -> Builder &
+	{
+		m_style.opacity = value.fallback;
+		m_style.animated_opacity = std::move(value);
+		return *this;
+	}
+	auto build() const -> LayerStyle { return m_style; }
 
 private:
 	LayerStyle m_style {};
@@ -416,9 +739,17 @@ struct OverlayHostSpec
 class OverlayHostSpec::Builder
 {
 public:
-	auto clip_to_bounds(bool value) -> Builder &;
-	auto z_index(int value) -> Builder &;
-	auto build() const -> OverlayHostSpec;
+	auto clip_to_bounds(bool const value) -> Builder &
+	{
+		m_spec.clip_to_bounds = value;
+		return *this;
+	}
+	auto z_index(int const value) -> Builder &
+	{
+		m_spec.z_index = value;
+		return *this;
+	}
+	auto build() const -> OverlayHostSpec { return m_spec; }
 
 private:
 	OverlayHostSpec m_spec {};
@@ -440,24 +771,156 @@ struct LayerSpec
 class LayerSpec::Builder
 {
 public:
-	auto focus_mode(LayerFocusMode value) -> Builder &;
-	auto z_index(int value) -> Builder &;
-	auto overlay() -> Builder &;
-	auto exclusive() -> Builder &;
-	auto passive() -> Builder &;
-	auto top(float value) -> Builder &;
-	auto top(Animation::Ref value) -> Builder &;
-	auto right(float value) -> Builder &;
-	auto right(Animation::Ref value) -> Builder &;
-	auto bottom(float value) -> Builder &;
-	auto bottom(Animation::Ref value) -> Builder &;
-	auto left(float value) -> Builder &;
-	auto left(Animation::Ref value) -> Builder &;
-	auto build() const -> LayerSpec;
+	auto focus_mode(LayerFocusMode const value) -> Builder &
+	{
+		m_spec.focus_mode = value;
+		return *this;
+	}
+	auto z_index(int const value) -> Builder &
+	{
+		m_spec.z_index = value;
+		return *this;
+	}
+	auto overlay() -> Builder & { return focus_mode(LayerFocusMode::Overlay); }
+	auto exclusive() -> Builder &
+	{
+		return focus_mode(LayerFocusMode::Exclusive);
+	}
+	auto passive() -> Builder & { return focus_mode(LayerFocusMode::Passive); }
+	auto top(float const value) -> Builder &
+	{
+		m_spec.top = value;
+		return *this;
+	}
+	auto top(Animation::Ref value) -> Builder &
+	{
+		m_spec.top = std::move(value);
+		return *this;
+	}
+	auto right(float const value) -> Builder &
+	{
+		m_spec.right = value;
+		return *this;
+	}
+	auto right(Animation::Ref value) -> Builder &
+	{
+		m_spec.right = std::move(value);
+		return *this;
+	}
+	auto bottom(float const value) -> Builder &
+	{
+		m_spec.bottom = value;
+		return *this;
+	}
+	auto bottom(Animation::Ref value) -> Builder &
+	{
+		m_spec.bottom = std::move(value);
+		return *this;
+	}
+	auto left(float const value) -> Builder &
+	{
+		m_spec.left = value;
+		return *this;
+	}
+	auto left(Animation::Ref value) -> Builder &
+	{
+		m_spec.left = std::move(value);
+		return *this;
+	}
+	auto build() const -> LayerSpec { return m_spec; }
 
 private:
 	LayerSpec m_spec {};
 };
+
+inline auto FlexOptions::builder() -> Builder
+{
+	return Builder {};
+}
+
+inline auto FlexOptions::Builder::merge(FlexOptions const &options) -> Builder &
+{
+	if (options.has_width()) {
+		m_options.m_common.width = options.width_value();
+	}
+	if (options.has_height()) {
+		m_options.m_common.height = options.height_value();
+	}
+
+	if (options.has_gap()) {
+		m_options.m_gap = options.gap();
+	}
+	if (options.has_row_gap()) {
+		m_options.m_row_gap = options.row_gap();
+	}
+	if (options.has_column_gap()) {
+		m_options.m_column_gap = options.column_gap();
+	}
+
+	if (options.flex_grow() != 0.0f) {
+		m_options.m_common.flex_grow = options.flex_grow();
+	}
+	if (options.flex_shrink() != 1.0f) {
+		m_options.m_common.flex_shrink = options.flex_shrink();
+	}
+	if (options.has_flex_basis()) {
+		m_options.m_common.flex_basis = options.flex_basis();
+	}
+
+	if (options.has_min_width()) {
+		m_options.m_common.min_width = options.min_width();
+	}
+	if (options.has_min_height()) {
+		m_options.m_common.min_height = options.min_height();
+	}
+	if (options.has_max_width()) {
+		m_options.m_common.max_width = options.max_width();
+	}
+	if (options.has_max_height()) {
+		m_options.m_common.max_height = options.max_height();
+	}
+
+	if (options.align_self() != AlignSelf::Auto) {
+		m_options.m_common.align_self = options.align_self();
+	}
+
+	return *this;
+}
+
+inline auto ScrollOptions::builder() -> Builder
+{
+	return Builder {};
+}
+
+inline auto TextStyle::builder() -> Builder
+{
+	return Builder {};
+}
+
+inline auto SurfaceStyle::builder() -> Builder
+{
+	return Builder {};
+}
+
+inline auto IconStyle::builder() -> Builder
+{
+	return Builder {};
+}
+
+inline auto LayerStyle::builder() -> Builder
+{
+	return Builder {};
+}
+
+inline auto OverlayHostSpec::builder() -> Builder
+{
+	return Builder {};
+}
+
+inline auto LayerSpec::builder() -> Builder
+{
+	return Builder {};
+}
 
 template<typename T> class MutableState
 {
@@ -604,16 +1067,16 @@ public:
 		scrollable(this->id(key), options, fn);
 	}
 
-	auto sidebar_open() const -> bool;
-	auto sidebar_visible() const -> bool;
-	auto dialog_open() const -> bool;
+	auto sidebar_open() const -> bool { return m_system.sidebar_open(); }
+	auto sidebar_visible() const -> bool { return m_system.sidebar_visible(); }
+	auto dialog_open() const -> bool { return m_system.dialog_open(); }
 	auto is_visible() const -> bool;
 	auto visibility_pause_condition() const -> std::function<bool()>;
 	auto restart_animation(Animation::Ref const &ref) -> void;
 	auto sample_animation(Animation::Ref const &ref) -> float;
-	auto id(std::string_view key) -> Id;
+	auto id(std::string_view const key) -> Id { return m_system.id(key); }
 	auto new_id(std::string_view prefix = "id") -> std::string;
-	auto request_recompose() -> void;
+	auto request_recompose() -> void { m_system.invalidate_compose(); }
 	auto system() -> System & { return m_system; }
 	template<typename T> auto remember(std::string_view key, T init) -> T &;
 	template<typename T> auto remember(Id key, T init) -> T &;
@@ -621,9 +1084,12 @@ public:
 	auto mutable_state_of(std::string_view key, T init) -> MutableState<T>;
 	template<typename T>
 	auto mutable_state_of(Id key, T init) -> MutableState<T>;
-	auto selection_mode() const -> bool;
-	auto window_rect() const -> Engine::Rect<> const &;
-	auto theme() const -> Theme const &;
+	auto selection_mode() const -> bool { return m_system.selection_mode(); }
+	auto window_rect() const -> Engine::Rect<> const &
+	{
+		return m_system.window_rect();
+	}
+	auto theme() const -> Theme const & { return m_system.theme(); }
 
 private:
 	auto push_node(Kind kind, Id key, Scope scope, FlexOptions const &options)

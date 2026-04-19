@@ -49,85 +49,6 @@ auto easing_sample(Easing const easing,
 	return x;
 }
 
-auto Definition::builder(std::string_view const key) -> Builder
-{
-	return Builder { key };
-}
-
-auto Definition::get_ref() const -> Ref
-{
-	return Ref { m_key, m_spec, m_pause_if, m_fallback };
-}
-
-Definition::Builder::Builder(std::string_view const key)
-{
-	m_definition.m_key = std::string(key);
-	m_definition.m_spec = TweenSpec {};
-	m_definition.m_fallback = m_definition.m_spec.from;
-}
-
-auto Definition::Builder::from(float const value) -> Builder &
-{
-	m_definition.m_spec.from = value;
-	m_definition.m_fallback = value;
-	return *this;
-}
-
-auto Definition::Builder::to(float const value) -> Builder &
-{
-	m_definition.m_spec.to = value;
-	return *this;
-}
-
-auto Definition::Builder::duration(float const seconds) -> Builder &
-{
-	m_definition.m_spec.duration_seconds = seconds;
-	return *this;
-}
-
-auto Definition::Builder::delay(float const seconds) -> Builder &
-{
-	m_definition.m_spec.delay_seconds = seconds;
-	return *this;
-}
-
-auto Definition::Builder::easing(Easing const value) -> Builder &
-{
-	m_definition.m_spec.easing = value;
-	return *this;
-}
-
-auto Definition::Builder::custom_easing(std::function<float(float)> fn)
-    -> Builder &
-{
-	m_definition.m_spec.easing = Easing::Custom;
-	m_definition.m_spec.custom_easing = std::move(fn);
-	return *this;
-}
-
-auto Definition::Builder::repeat(RepeatMode const value) -> Builder &
-{
-	m_definition.m_spec.repeat = value;
-	return *this;
-}
-
-auto Definition::Builder::pause_if(std::function<bool()> fn) -> Builder &
-{
-	m_definition.m_pause_if = std::move(fn);
-	return *this;
-}
-
-auto Definition::Builder::fallback(float const value) -> Builder &
-{
-	m_definition.m_fallback = value;
-	return *this;
-}
-
-auto Definition::Builder::build() const -> Definition
-{
-	return m_definition;
-}
-
 Tween::Tween(TweenSpec const spec)
 {
 	configure(spec);
@@ -151,11 +72,6 @@ auto Tween::restart() -> void
 auto Tween::stop() -> void
 {
 	m_running = false;
-}
-
-auto Tween::set_paused(bool const paused) -> void
-{
-	m_paused = paused;
 }
 
 auto Tween::cycle_length() const -> float

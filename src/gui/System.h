@@ -201,10 +201,23 @@ public:
 		return scope_present(Scope::Sidebar);
 	}
 	auto selection_mode() const -> bool { return m_selection_mode; }
-	auto set_hud_visible(bool visible) -> void;
+	auto set_hud_visible(bool const visible) -> void
+	{
+		if (m_hud_visible == visible) {
+			return;
+		}
+		m_hud_visible = visible;
+		m_visual_dirty = true;
+	}
 	auto get_hud_visible() const -> bool { return m_hud_visible; }
-	auto selected(Id key) const -> bool;
-	auto selected(std::string_view key) const -> bool;
+	auto selected(Id const key) const -> bool
+	{
+		return m_selected.contains(key);
+	}
+	auto selected(std::string_view const key) const -> bool
+	{
+		return selected(id(key));
+	}
 	auto stats() const -> Stats const & { return m_stats; }
 	auto set_icon_atlas(uint32_t image_id, IconAtlas const &atlas) -> void;
 	auto set_text_measure_fn(

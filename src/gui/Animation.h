@@ -80,7 +80,10 @@ public:
 	class Builder;
 
 	static auto builder(std::string_view key) -> Builder;
-	auto get_ref() const -> Ref;
+	auto get_ref() const -> Ref
+	{
+		return Ref { m_key, m_spec, m_pause_if, m_fallback };
+	}
 
 private:
 	std::string m_key {};
@@ -94,21 +97,69 @@ private:
 class Definition::Builder
 {
 public:
-	explicit Builder(std::string_view key);
-	auto from(float value) -> Builder &;
-	auto to(float value) -> Builder &;
-	auto duration(float seconds) -> Builder &;
-	auto delay(float seconds) -> Builder &;
-	auto easing(Easing value) -> Builder &;
-	auto custom_easing(std::function<float(float)> fn) -> Builder &;
-	auto repeat(RepeatMode value) -> Builder &;
-	auto pause_if(std::function<bool()> fn) -> Builder &;
-	auto fallback(float value) -> Builder &;
-	auto build() const -> Definition;
+	explicit Builder(std::string_view const key)
+	{
+		m_definition.m_key = std::string(key);
+		m_definition.m_spec = TweenSpec {};
+		m_definition.m_fallback = m_definition.m_spec.from;
+	}
+	auto from(float const value) -> Builder &
+	{
+		m_definition.m_spec.from = value;
+		m_definition.m_fallback = value;
+		return *this;
+	}
+	auto to(float const value) -> Builder &
+	{
+		m_definition.m_spec.to = value;
+		return *this;
+	}
+	auto duration(float const seconds) -> Builder &
+	{
+		m_definition.m_spec.duration_seconds = seconds;
+		return *this;
+	}
+	auto delay(float const seconds) -> Builder &
+	{
+		m_definition.m_spec.delay_seconds = seconds;
+		return *this;
+	}
+	auto easing(Easing const value) -> Builder &
+	{
+		m_definition.m_spec.easing = value;
+		return *this;
+	}
+	auto custom_easing(std::function<float(float)> fn) -> Builder &
+	{
+		m_definition.m_spec.easing = Easing::Custom;
+		m_definition.m_spec.custom_easing = std::move(fn);
+		return *this;
+	}
+	auto repeat(RepeatMode const value) -> Builder &
+	{
+		m_definition.m_spec.repeat = value;
+		return *this;
+	}
+	auto pause_if(std::function<bool()> fn) -> Builder &
+	{
+		m_definition.m_pause_if = std::move(fn);
+		return *this;
+	}
+	auto fallback(float const value) -> Builder &
+	{
+		m_definition.m_fallback = value;
+		return *this;
+	}
+	auto build() const -> Definition { return m_definition; }
 
 private:
 	Definition m_definition {};
 };
+
+inline auto Definition::builder(std::string_view const key) -> Builder
+{
+	return Builder { key };
+}
 
 class Tween
 {
@@ -119,7 +170,7 @@ public:
 	auto configure(TweenSpec spec) -> void;
 	auto restart() -> void;
 	auto stop() -> void;
-	auto set_paused(bool paused) -> void;
+	auto set_paused(bool const paused) -> void { m_paused = paused; }
 	auto paused() const -> bool { return m_paused; }
 	auto running() const -> bool { return m_running; }
 	auto value() const -> float;

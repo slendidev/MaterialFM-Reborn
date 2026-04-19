@@ -602,25 +602,6 @@ System::System()
 	m_sidebar_tween.stop();
 }
 
-auto System::set_hud_visible(bool const visible) -> void
-{
-	if (m_hud_visible == visible) {
-		return;
-	}
-	m_hud_visible = visible;
-	m_visual_dirty = true;
-}
-
-auto System::selected(Id const key) const -> bool
-{
-	return m_selected.contains(key);
-}
-
-auto System::selected(std::string_view const key) const -> bool
-{
-	return selected(id(key));
-}
-
 auto System::set_icon_atlas(uint32_t const image_id, IconAtlas const &atlas)
     -> void
 {

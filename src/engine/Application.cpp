@@ -39,31 +39,4 @@ auto BaseApplication::on_init() -> void { }
 
 auto BaseApplication::on_shutdown() -> void { }
 
-auto BaseApplication::is_down(Button const button) const -> bool
-{
-	return (m_input.buttons & detail::button_mask(button)) != 0;
-}
-
-auto BaseApplication::is_up(Button const button) const -> bool
-{
-	return !is_down(button);
-}
-
-auto BaseApplication::is_pressed(Button const button) const -> bool
-{
-	auto const mask { detail::button_mask(button) };
-	return (m_input.buttons & mask) != 0 && (m_prev_input.buttons & mask) == 0;
-}
-
-auto BaseApplication::is_released(Button const button) const -> bool
-{
-	auto const mask { detail::button_mask(button) };
-	return (m_input.buttons & mask) == 0 && (m_prev_input.buttons & mask) != 0;
-}
-
-auto BaseApplication::stick() const -> smath::Vec2
-{
-	return m_input.stick;
-}
-
 } // namespace Engine
