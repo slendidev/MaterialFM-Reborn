@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <ranges>
 #include <variant>
 
 #include "IO.h"
@@ -73,6 +74,12 @@ Application::Application()
 	}
 
 	m_mountpoints = find_available_mountpoints();
+
+	try {
+		m_cwd = m_mountpoints.at(0);
+	} catch (std::exception const &e) {
+		sassert(0, "No mountpoints available");
+	}
 }
 
 namespace
@@ -130,22 +137,22 @@ auto Application::on_update(float const dt) -> void
 	if (is_pressed(Engine::Button::Square)) {
 		request_exit();
 	}
-	if (is_pressed(Engine::Button::Start) && !m_dialog_open) {
-		m_sidebar_open = !m_sidebar_open;
-		m_gui.invalidate_compose();
+	auto sidebar_open {
+		m_gui.mutable_state_of<bool>("app/sidebar_open", false),
+	};
+	auto dialog_open { m_gui.mutable_state_of<bool>("app/dialog_open", false) };
+	if (is_pressed(Engine::Button::Start) && !dialog_open.get()) {
+		sidebar_open.update([](bool &open) { open = !open; });
 	}
-	if (is_pressed(Engine::Button::Triangle) && !m_dialog_open
-	    && !m_sidebar_open) {
-		m_dialog_open = true;
-		m_gui.invalidate_compose();
+	if (is_pressed(Engine::Button::Triangle) && !dialog_open.get()
+	    && !sidebar_open.get()) {
+		dialog_open.set(true);
 	}
 	if (is_pressed(Engine::Button::Circle)) {
-		if (m_dialog_open) {
-			m_dialog_open = false;
-			m_gui.invalidate_compose();
-		} else if (m_sidebar_open) {
-			m_sidebar_open = false;
-			m_gui.invalidate_compose();
+		if (dialog_open.get()) {
+			dialog_open.set(false);
+		} else if (sidebar_open.get()) {
+			sidebar_open.set(false);
 		}
 	}
 
@@ -206,12 +213,12 @@ auto Application::on_update(float const dt) -> void
 			            .color(m_gui.theme().on_surface_variant)
 			            .selected_color(m_gui.theme().on_primary)
 			            .build());
-			    ctx.scrollable(ctx.id("library"),
+			    ctx.scrollable(ctx.id("files"),
 			        Gui::ScrollOptions::builder()
 			            .reveal_mode(Gui::ScrollRevealMode::IncludePadding)
 			            .build(),
 			        [&](Gui::Context &scroll) {
-				        scroll.flex(scroll.id("library_list"),
+				        scroll.flex(scroll.id("file_list"),
 				            Gui::FlexOptions::builder()
 				                .column()
 				                .padding(std::array<float, 4> {
@@ -219,16 +226,13 @@ auto Application::on_update(float const dt) -> void
 				                .gap(4.0f)
 				                .build(),
 				            [&](Gui::Context &list) {
-					            Gui::components::Button::builder(
-					                list, "track_1")
-					                .label("Track 1")
-					                .on_activate([&]() { })
-					                .selectable(true)
-					                .build();
-					            for (int i = 2; i < 10; i++) {
+					            for (auto const &[i, entry] :
+					                std::ranges::views::enumerate(
+					                    std::filesystem::directory_iterator(
+					                        m_cwd))) {
 						            Gui::components::Button::builder(
-						                list, std::format("track_{}", i))
-						                .label(std::format("Track {}", i))
+						                list, std::format("file_{}", i))
+						                .label(entry.path().filename().string())
 						                .on_activate([&]() { })
 						                .selectable(true)
 						                .build();
@@ -245,7 +249,7 @@ auto Application::on_update(float const dt) -> void
 		    Gui::OverlayHostSpec::builder().build(),
 		    [&](Gui::Context &overlay) {
 			    Gui::components::Sidebar::builder(overlay, "drawer")
-			        .open(m_sidebar_open)
+			        .open(sidebar_open.get())
 			        .options(Gui::FlexOptions::builder()
 			                .column()
 			                .padding(10.0f)
@@ -257,6 +261,10 @@ auto Application::on_update(float const dt) -> void
 					            drawer, std::format("btn_{}", part))
 					            .label(part)
 					            .icon(icon_for_mountpoint(part))
+					            .on_activate([&] {
+						            m_cwd = part;
+						            sidebar_open.set(false);
+					            })
 					            .build();
 				        }
 
@@ -326,7 +334,7 @@ auto Application::on_update(float const dt) -> void
 			        .build();
 
 			    Gui::components::Dialog::builder(overlay, "actions_dialog")
-			        .open(m_dialog_open)
+			        .open(dialog_open.get())
 			        .options(Gui::FlexOptions::builder()
 			                .column()
 			                .padding(12.0f)
@@ -343,10 +351,7 @@ auto Application::on_update(float const dt) -> void
 				                .build());
 				        Gui::components::Button::builder(dialog, "dialog_close")
 				            .label("Close")
-				            .on_activate([&]() {
-					            m_dialog_open = false;
-					            m_gui.invalidate_compose();
-				            })
+				            .on_activate([&]() { dialog_open.set(false); })
 				            .build();
 			        })
 			        .build();

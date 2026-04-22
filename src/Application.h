@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <filesystem>
 
 #include "engine/Application.h"
 #include "gui/Gui.h"
@@ -25,8 +26,6 @@ private:
 	bool m_has_icon_atlas {};
 	bool m_icon_atlas_bound {};
 	uint8_t m_gui_hud_visible { 0 };
-	bool m_sidebar_open {};
-	bool m_dialog_open {};
 	Engine::FontHandle m_gui_measure_font_handle {};
 	Engine::FontHandle m_notosansjp_font {};
 	static constexpr size_t FRAME_TIME_HISTORY_CAPACITY { 60 };
@@ -35,6 +34,7 @@ private:
 	size_t m_frame_ms_count {};
 
 	std::vector<std::string> m_mountpoints;
+	std::filesystem::path m_cwd;
 };
 
 } // namespace MaterialFM

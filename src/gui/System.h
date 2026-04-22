@@ -19,6 +19,7 @@
 #include "gui/Animation.h"
 #include "gui/IconAtlas.h"
 #include "gui/Id.h"
+#include "gui/MutableState.h"
 #include "gui/Node.h"
 #include "gui/Theme.h"
 
@@ -271,6 +272,28 @@ public:
 		fn(next);
 		return set_state_if_changed<T>(key, std::move(next));
 	}
+	template<typename T>
+	auto mutable_state_of(std::string_view const key, T init) -> MutableState<T>
+	{
+		return mutable_state_of<T>(id(key), std::move(init));
+	}
+	template<typename T>
+	auto mutable_state_of(Id const key, T init) -> MutableState<T>
+	{
+		auto const full_key { global_state_id(key) };
+		remember_state<T>(full_key, std::move(init));
+		return MutableState<T> {
+			[this, full_key]() -> T const & {
+			    return remember_state<T>(full_key, T {});
+			},
+			[this, full_key](T value) {
+			    set_state_if_changed<T>(full_key, std::move(value));
+			},
+			[this, full_key](std::function<void(T &)> updater) {
+			    update_state<T>(full_key, std::move(updater));
+			},
+		};
+	}
 	auto window_rect() const -> Engine::Rect<> const & { return m_window_rect; }
 	auto dump_tree_string(WindowHandle handle) const
 	    -> std::optional<std::string>;
@@ -302,7 +325,10 @@ public:
 private:
 	static constexpr size_t NODE_POOL_MAX { 256 };
 	static constexpr std::string_view STATE_SEGMENT { "@state" };
+	static constexpr std::string_view GLOBAL_STATE_SEGMENT { "@global" };
 	static constexpr std::string_view TWEEN_SEGMENT { "@tween" };
+
+	auto global_state_id(Id local_key) const -> Id;
 
 	struct IdRegistry
 	{

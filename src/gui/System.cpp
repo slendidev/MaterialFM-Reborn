@@ -369,6 +369,11 @@ auto System::state_id(Id const parent, Id const local_key) const -> Id
 	return compose_id(compose_id(parent, STATE_SEGMENT), local_key);
 }
 
+auto System::global_state_id(Id const local_key) const -> Id
+{
+	return state_id(compose_id(m_root->key, GLOBAL_STATE_SEGMENT), local_key);
+}
+
 auto System::tween_id(Id const owner, std::string_view const local_key) const
     -> Id
 {
