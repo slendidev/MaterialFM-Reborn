@@ -17,11 +17,12 @@ namespace MaterialFM
 namespace
 {
 
-auto icon_for_partition(std::string_view const partition) -> std::string_view
+auto icon_for_mountpoint(std::string_view const mountpoint) -> std::string_view
 {
-	if (partition.starts_with("flash")) {
+	if (mountpoint.starts_with("flash")) {
 		return "mem";
-	} else if (partition.starts_with("umd") || partition.starts_with("disc")) {
+	} else if (mountpoint.starts_with("umd")
+	    || mountpoint.starts_with("disc")) {
 		return "album";
 	}
 	return "sd";
@@ -71,7 +72,7 @@ Application::Application()
 		}
 	}
 
-	m_partitions = find_available_partitions();
+	m_mountpoints = find_available_mountpoints();
 }
 
 namespace
@@ -251,11 +252,11 @@ auto Application::on_update(float const dt) -> void
 			                .gap(8.0f)
 			                .build())
 			        .content([&](Gui::Context &drawer) {
-				        for (auto const &part : m_partitions) {
+				        for (auto const &part : m_mountpoints) {
 					        Gui::components::Button::builder(
 					            drawer, std::format("btn_{}", part))
 					            .label(part)
-					            .icon(icon_for_partition(part))
+					            .icon(icon_for_mountpoint(part))
 					            .build();
 				        }
 

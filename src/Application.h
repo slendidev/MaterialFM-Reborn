@@ -34,7 +34,7 @@ private:
 	size_t m_frame_ms_head {};
 	size_t m_frame_ms_count {};
 
-	std::vector<std::string> m_partitions;
+	std::vector<std::string> m_mountpoints;
 };
 
 } // namespace MaterialFM

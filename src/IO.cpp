@@ -9,7 +9,7 @@
 namespace MaterialFM
 {
 
-auto find_available_partitions() -> std::vector<std::string>
+auto find_available_mountpoints() -> std::vector<std::string>
 {
 	std::vector<std::string> detected {};
 #ifdef PSP
@@ -18,7 +18,7 @@ auto find_available_partitions() -> std::vector<std::string>
 	    "ms0:/",
 	    // Internal storage
 	    "ef0:/",
-	    // System partitions
+	    // System mountpoints
 	    "flash0:/",
 	    "flash1:/",
 	    "flash2:/",
@@ -36,17 +36,17 @@ auto find_available_partitions() -> std::vector<std::string>
 		}
 	}
 #else
-#error "find_available_partitions() not supported on this platform! (yet)"
+#error "find_available_mountpoints() not supported on this platform! (yet)"
 #endif
 	return detected;
 }
 
-auto is_system_partition(std::string_view const partition) -> bool
+auto is_system_mountpoints(std::string_view const mountpoint) -> bool
 {
 #ifdef PSP
-	return partition.starts_with("flash");
+	return mountpoint.starts_with("flash");
 #else
-#error "is_system_partition() not supported on this platform! (yet)"
+#error "is_system_mountpoint() not supported on this platform! (yet)"
 #endif
 }
 
